@@ -42,8 +42,8 @@ def acl(path):
     """[(SID, Allow/Deny, 权限), ...]，含继承来的项。路径经环境变量传，中文和空格不用转义。"""
     # 从 PowerShell 7 里启动时（GitHub Actions 的 runner）会继承 7 的 PSModulePath，Windows PowerShell 5.1 就加载不了
     # 自带的 Get-Acl；去掉它，5.1 用自己的默认值
-    env = child_env(QF_ACL_PATH=str(path))
-    env.pop('PSModulePath', None)
+    # Windows 上 os.environ 的键是大写，按不分大小写去掉
+    env = {k: v for k, v in child_env(QF_ACL_PATH=str(path)).items() if k.upper() != 'PSMODULEPATH'}
     r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', PS_ACL],
                        env=env, capture_output=True, text=True, errors='replace', timeout=120)
     assert r.returncode == 0, r.stderr

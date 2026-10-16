@@ -371,7 +371,7 @@ def test_login_waits_one_hour_then_stops_with_a_hint(monkeypatch):
                 return False
     with pytest.raises(LoginFailed) as e:
         oauth.wait_for_code(NeverDone, None, 'st', oauth.LOGIN_TIMEOUT, io.StringIO())
-    assert 3590 < NeverDone.waited[0] <= 3600
+    assert 3590 < NeverDone.waited[0] <= 3600 + 1e-6      # Windows 时钟粒度粗，差值可能多出一点浮点误差
     assert '60 分钟' in str(e.value) and 'quafu login' in str(e.value) and 'QUAFU_API_KEY' in str(e.value)
 
 
