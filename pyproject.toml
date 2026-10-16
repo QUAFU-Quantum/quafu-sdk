@@ -1,0 +1,57 @@
+[project]
+name = "quafu-sdk"
+version = "0.2.7"
+description = "Python SDK for the QUAFU quantum computing platform: log in, submit quantum circuits, and fetch results"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["quantum", "quantum-computing", "quafu", "sdk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+# 运行时只用标准库（依赖切割，见 tests/deps/）；qiskit 只在把 QuantumCircuit 当输入时才需要，作可选依赖。
+# 增加任何运行时依赖要维护者同意，并同步 tests/unit/test_boundary.py 与 tests/deps/
+dependencies = []
+
+# 表头一旦开始就把后面的键都收进去，所以 urls 必须放在 [project] 的所有裸键之后
+[project.urls]
+Homepage = "https://quafu.com.cn"
+Documentation = "https://quafu.com.cn/en/docs/sdk"
+Repository = "https://github.com/QUAFU-Quantum/quafu-sdk"
+Issues = "https://github.com/QUAFU-Quantum/quafu-sdk/issues"
+Changelog = "https://github.com/QUAFU-Quantum/quafu-sdk/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+qiskit = ["qiskit>=1.3"]
+
+[project.scripts]
+quafu = "quafu.cli:main"
+
+# 契约测试不把任务分发器装进本环境：任务分发器在子进程里用它自己的环境跑（uv run --project dispatcher），
+# 两边的依赖与 Python 版本互不牵扯。见 tests/contract/conftest.py
+[dependency-groups]
+dev = ["pytest>=8", "qiskit>=1.3", "qiskit-aer>=0.15"]
+
+[build-system]
+requires = ["uv_build>=0.8,<1"]
+build-backend = "uv_build"
+
+# 与任务分发器同一镜像（国内直连快）；uv 仍按 uv.lock 的哈希校验
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[tool.uv.build-backend]
+module-name = "quafu"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["network: 要联网拉包（依赖树检查）；离线时自动跳过并打印「未验证依赖树」"]
