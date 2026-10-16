@@ -258,6 +258,9 @@ def test_interactive_detection(monkeypatch):
             return True
     monkeypatch.setattr('sys.stdin', io.StringIO(''))
     assert not oauth.interactive() and oauth.default_reader() is None
+    # 只测「看不看 isatty()」：Windows 上另要真控制台（GitHub Actions 的 runner 没有），那一层由下面几条单独测
+    monkeypatch.setattr(oauth, 'windows_console', lambda stream: True)
+    monkeypatch.setattr(oauth, 'console_window_visible', lambda: True)
     monkeypatch.setattr('sys.stdin', TTY(''))
     assert oauth.interactive()
     monkeypatch.setattr('sys.stdin', None)
