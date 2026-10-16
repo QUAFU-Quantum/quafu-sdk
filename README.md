@@ -324,6 +324,27 @@ quafu.calibration(r.calibration_id) # the calibration data used by a given run (
 
 Field names include units (e.g. `t1_us`); fidelities are decimals from 0 to 1; values not measured or not filled in are `None`. Querying devices and calibration data does not require login.
 
+## Share a result (public tasks)
+
+Make one of your finished tasks public, then give others its public ID or share link. Anyone can read it — no login needed — and sees the same result you see.
+
+```python
+job = quafu.submit(bell, target="sim", name="Bell state")
+r = job.result()
+p = job.publish()                 # or quafu.publish(r.task_id)
+p.public_id, p.url                # e.g. "k7m2q9x4bt3w", "https://quafu.com.cn/public-tasks/k7m2q9x4bt3w"
+job.unpublish()                   # the public ID and link stop working; publishing again gives a new ID
+```
+
+```python
+pt = quafu.public_task("k7m2q9x4bt3w")   # a public ID or the whole share link
+pt.result.counts                          # same fields as job.result(): counts, measurements, executed_qasm, ...
+pt.executor                               # quafu_hardware / quafu_noisy_simulator / quafu_simulator / jiuding_simulator
+pt.verify()                               # True: recomputes the record's SHA-256 locally and checks it against the result
+```
+
+`verify()` shows the record has not changed since it was published; it is not a platform signature.
+
 ## Usage statistics
 
 ```python
@@ -396,6 +417,8 @@ All exceptions inherit from `quafu.QuafuError`; error messages explain the cause
 | `QuotaError` | Daily hard cap or another limit reached; `retry_after` is the suggested wait in seconds, `resets_at` the next quota reset, `vars` the details. Going over the normal quota does not raise — those tasks just run at the lowest priority |
 | `JobFailed` / `JobCancelled` | Circuit run failed / was cancelled; `retryable` indicates whether resubmitting unchanged makes sense |
 | `JobNotFound` | The job does not exist or does not belong to the current account |
+| `PublicTaskNotFound` | No public task with that ID: wrong ID, or its owner made it private |
+| `NotPublishable` | The task cannot be made public: `reason` is `not_finished` or `demo` (a platform demo circuit) |
 | `JobClosed` | Appending tasks to a closed or non-iterative job |
 | `Timeout` | Waiting exceeded `timeout` |
 | `ServerUnavailable` | Cannot connect to the platform, or the platform is temporarily unavailable |

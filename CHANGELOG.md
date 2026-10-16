@@ -6,6 +6,12 @@ Versioning: patch = bug fixes, following platform-side changes, and wording; min
 
 ## [Unreleased]
 
+### Added
+
+- Public tasks (share a result). Owners: `job.publish(seq=0)` / `job.unpublish(seq=0)` / `job.publication(seq=0)`, and `quafu.publish(task_id)` / `quafu.unpublish(task_id)`, return a `Publication` with `public_id` and `url` (the share link). Anyone: `quafu.public_task(public_id_or_link)` returns a `PublicTask` whose `result` is the same `Result` the owner gets from `job.result()`, plus `executor` (real hardware or which simulator), `record`, `record_sha256`, `integrity` and `verify()`, which recomputes the record's SHA-256 locally and checks it against the result. Reading needs no login; if the platform is configured to require one (HTTP 401), the SDK retries with your saved credential. New exceptions `PublicTaskNotFound` and `NotPublishable` (`reason` is `not_finished` or `demo`).
+  - Why: users want to share a computation so that others can see exactly what ran and what came back, e.g. task results cited in a paper. The platform gives each published task a random public ID (separate from the task ID, which is guessable) that stops working when the owner makes the task private.
+  - `verify()` proves the record has not changed since publication; it is not a platform signature (planned separately).
+
 ### Changed
 
 - Documentation only, no behavior change: the platform's Jiuding simulated chips (`<chip>-sim-jiuding`) now start on demand and are released after a few idle minutes, so their `status` in `devices()` can also be `standby` (no simulator running right now; one starts automatically when you submit). `devices()` already passed `status` through unchanged; its docstring and the README now list `standby` and state that submitting to a `standby` target is accepted normally instead of raising `DeviceUnavailable`. 0.2.7 keeps working against the platform; only its docstring lacks this value.
