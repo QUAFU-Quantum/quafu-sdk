@@ -28,9 +28,9 @@ from ._i18n import t
 from ._inputs import normalize_circuit, normalize_parameters, normalize_points
 from ._qasm import to_qasm
 from .devices import Calibration, Device
-from .errors import (QuafuError, BadRequest, CredentialsError, LoginExpired, LoginFailed, LoginRevoked, NotLoggedIn,
+from .errors import (QuafuError, AuthError, BadRequest, CredentialsError, LoginExpired, LoginFailed, LoginRevoked, NotLoggedIn,
                      ProtocolError, QuotaError, ServerUnavailable, SubmitUncertain, Timeout, from_response, snippet)
-from .jobs import Job
+from .jobs import Job, PublicTask, parse_public_id
 from .transport import HTTPTransport
 
 log = logging.getLogger('quafu')
@@ -381,6 +381,37 @@ class Client(BaseClient):
         没有额度的格（游客的理想模拟）limit / hard_limit / remaining / resets_at 为 None。"""
         return self._request('GET', '/stats/me?' + urlencode({'days': operator.index(days)}))
 
+    def _task_job(self, task_id):
+        """任务号「任务组号-序号」→ (Job, 序号)；形状不对抛 BadRequest。"""
+        jid, _, seq = str(task_id or '').strip().rpartition('-')
+        if not jid or not seq.isdigit():
+            raise BadRequest(t('client.task_id_type'))
+        return Job(self, jid), int(seq)
+
+    def publish(self, task_id):
+        """把自己的一条已完成任务设为公开，返回 Publication（public_id、url）。任务号即 result.task_id。"""
+        job, seq = self._task_job(task_id)
+        return job.publish(seq)
+
+    def unpublish(self, task_id):
+        """取消公开一条任务：公开 ID 与分享链接即时作废。"""
+        job, seq = self._task_job(task_id)
+        return job.unpublish(seq)
+
+    def public_task(self, public_id):
+        """按公开 ID（或整条分享链接）读别人公开的一条任务，返回 PublicTask：pt.result 与所有者 job.result() 同形，
+        pt.verify() 在本机核对记录指纹。默认不需要登录；平台要求登录时（401）用本机凭证再读一次。
+        没有这条（公开 ID 不对或已取消公开）抛 PublicTaskNotFound。"""
+        pid = parse_public_id(public_id)
+        if not pid:
+            raise BadRequest(t('client.public_id_type'))
+        path = '/public/tasks/%s' % pid
+        try:
+            d = self._request('GET', path, endpoint='public', task_id=pid, auth=False)
+        except AuthError:
+            d = self._request('GET', path, endpoint='public', task_id=pid)
+        return PublicTask(d, self.base_url)
+
     def job(self, job_id):
         """按任务组号接回（只能接回自己的）：不存在或不是自己的抛 JobNotFound。"""
         if not isinstance(job_id, str) or not job_id.strip():
@@ -597,3 +628,18 @@ def job(job_id):
 def devices():
     """能交到哪些目标，见 Client.devices()。"""
     return Client().devices()
+
+
+def publish(task_id):
+    """把自己的一条已完成任务设为公开，返回 Publication（public_id、url），见 Client.publish()。"""
+    return Client().publish(task_id)
+
+
+def unpublish(task_id):
+    """取消公开一条任务，见 Client.unpublish()。"""
+    return Client().unpublish(task_id)
+
+
+def public_task(public_id):
+    """按公开 ID 或分享链接读别人公开的任务，返回 PublicTask，见 Client.public_task()。"""
+    return Client().public_task(public_id)

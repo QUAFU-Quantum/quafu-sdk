@@ -170,6 +170,23 @@ class JobNotFound(_JobError):
     """任务组不存在，或不属于当前账号。"""
 
 
+class PublicTaskNotFound(QuafuError):
+    """没有这条公开任务：公开号不对，或所有者已取消公开。public_id 是查的那个号。"""
+
+    def __init__(self, message='', public_id=None, **kw):
+        super().__init__(message, **kw)
+        self.public_id = public_id
+
+
+class NotPublishable(_TaskError):
+    """这条任务不能公开（not_publishable）：reason 为 not_finished（还没完成，task_status 是当时的状态）
+    或 demo（平台预置的演示线路）。"""
+
+    def __init__(self, message='', task_id=None, reason=None, task_status=None, **kw):
+        super().__init__(message, task_id=task_id, **kw)
+        self.reason, self.task_status = reason, task_status
+
+
 class ServerUnavailable(QuafuError):
     """连不上平台、它没应答或回 5xx，或它的契约版本还不支持你要用的功能。sent 标明请求是否可能已经发出。"""
 
@@ -232,6 +249,7 @@ _JOB_CONFLICT_TEXT = {
     'job_has_no_template': 'errors.job.no_template',
 }
 
+_NOT_PUBLISHABLE_TEXT = {'demo': 'errors.not_publishable.demo', 'not_finished': 'errors.not_publishable.not_finished'}
 _NOT_CANCELLABLE_TEXT = {
     'collecting': 'errors.not_cancellable.collecting',
     'finished': 'errors.not_cancellable.finished',
@@ -320,6 +338,8 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
         return TaskFailed(t('errors.task_failed', task_id, category, text, failure_note(category, vars_)),
                           task_id=task_id, category=category, detail=body.get('detail'), vars=vars_, **kw)
     if status == 404:
+        if code == 'not_found' and endpoint == 'public':
+            return PublicTaskNotFound(t('errors.public_not_found', task_id), public_id=task_id, **kw)
         if code == 'not_found' and endpoint in ('task', 'result'):
             return TaskNotFound(t('errors.task_not_found', task_id, who), task_id=task_id, **kw)
         if code == 'not_found' and endpoint == 'job':
@@ -327,6 +347,12 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
         if code:
             return BadRequest('%s [%s]' % (text or t('errors.no_such_object'), code), **kw)
         return ProtocolError(t('errors.no_endpoint'), **kw)
+    if status == 409 and code == 'not_publishable':
+        vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        reason = vars_.get('reason')
+        why = t(_NOT_PUBLISHABLE_TEXT[reason]) if reason in _NOT_PUBLISHABLE_TEXT else text
+        return NotPublishable(t('errors.not_publishable', task_id, why), task_id=task_id, reason=reason,
+                              task_status=vars_.get('task_status'), **kw)
     if status == 409 and code == 'not_cancellable':
         stage = body['vars'].get('stage') if isinstance(body.get('vars'), dict) else None
         why = t(_NOT_CANCELLABLE_TEXT.get(stage, 'errors.not_cancellable.other'))
