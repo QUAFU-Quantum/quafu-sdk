@@ -258,6 +258,9 @@ def test_interactive_detection(monkeypatch):
             return True
     monkeypatch.setattr('sys.stdin', io.StringIO(''))
     assert not oauth.interactive() and oauth.default_reader() is None
+    # 只测「看不看 isatty()」：Windows 上另要真控制台（GitHub Actions 的 runner 没有），那一层由下面几条单独测
+    monkeypatch.setattr(oauth, 'windows_console', lambda stream: True)
+    monkeypatch.setattr(oauth, 'console_window_visible', lambda: True)
     monkeypatch.setattr('sys.stdin', TTY(''))
     assert oauth.interactive()
     monkeypatch.setattr('sys.stdin', None)
@@ -368,7 +371,7 @@ def test_login_waits_one_hour_then_stops_with_a_hint(monkeypatch):
                 return False
     with pytest.raises(LoginFailed) as e:
         oauth.wait_for_code(NeverDone, None, 'st', oauth.LOGIN_TIMEOUT, io.StringIO())
-    assert 3590 < NeverDone.waited[0] <= 3600
+    assert 3590 < NeverDone.waited[0] <= 3600 + 1e-6      # Windows 时钟粒度粗，差值可能多出一点浮点误差
     assert '60 分钟' in str(e.value) and 'quafu login' in str(e.value) and 'QUAFU_API_KEY' in str(e.value)
 
 
