@@ -343,8 +343,10 @@ rs = job.results()                                    # one Samples per problem,
 ```
 
 - Inputs: `Q` and `J` are `{(i, j): weight}`, a square nested list, or anything with `tolist()` (numpy arrays; numpy is not required); `h` is a list of weights, `{i: weight}`, or `(i, weight)` pairs. Indices run from 0; weights must be finite real numbers. Invalid input raises `TypeError` or `ValueError` before anything is sent.
-- Before sending, the SDK merges `(j, i)` into `(i, j)`, adds up repeated terms and folds the diagonal, so `max_terms` counts the merged non-zero terms. Problems over `max_variables`, `max_terms` or `max_problems_per_job` raise `PrecheckError` locally (`vars["local"]` is `True`).
-- Ising problems take no `shots` and no `compiler`.
+- Before sending, the SDK merges `(j, i)` into `(i, j)`, adds up repeated terms and folds the diagonal, so `max_terms` counts the merged non-zero terms. Problems over `max_variables` or `max_terms` raise `PrecheckError` locally, and more than `max_problems_per_job` problems raise `QuotaError` (`job_too_large`), with the same codes the platform uses (`vars["local"]` is `True`).
+- Ising problems take no `shots` and no `compiler`, and cannot be appended to a job later. For several problems, use `results()`; `job.table()` covers circuits only.
+- Rejections by the platform: `PrecheckError` with `category` `precheck.paradigmMismatch` (the target does not take Ising problems), `precheck.unknownDevice`, `precheck.problemInvalid` (`vars["task_index"]` and `vars["field"]` say which problem and field), `precheck.problemTooLarge`; `QuotaError` `job_too_large` for too many problems in one job; `DeviceUnavailable` when the machine is not online.
+- An Ising machine may have limited coefficient precision. If it cannot represent the weights, the platform rejects the problem with `precheck.problemInvalid` and `vars["field"] == "precision"`: round the weights to small integers, or narrow their range, and submit again.
 - Ising problems need a platform with contract version 0.3.0 or later (reported by `GET {BASE_URL}/api/v1/healthz`); on an older platform `solve_*` raises `ServerUnavailable` without submitting.
 
 **Samples**
@@ -352,9 +354,9 @@ rs = job.results()                                    # one Samples per problem,
 | Field | Meaning |
 |---|---|
 | `best` | Lowest-energy solution: `best.values`, `best.energy` |
-| `samples` | Distinct solutions, lowest energy first: `[Sample(values, energy, occurrences)]`; `None` if unsuccessful |
+| `samples` | Distinct solutions, lowest energy first (the first is the best): `[Sample(values, energy, occurrences)]`; `None` if unsuccessful |
 | `energies` | Energy of each sample, in the same order |
-| `variable_type` | `"spin"` (values are -1 / +1) or `"binary"` (values are 0 / 1) |
+| `problem_type` | `"ising"` (values are -1 / +1) or `"qubo"` (values are 0 / 1) |
 | `energy_trace` | The machine's energy during the run, on the platform's energy scale; `None` if not available |
 | `device_time_us` | Compute time reported by the machine, in microseconds; `None` if not reported |
 | `status` / `ok` / `error` | Status of this task; failure reason as for `Result` |

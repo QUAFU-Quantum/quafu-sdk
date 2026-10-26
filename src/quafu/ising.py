@@ -35,10 +35,9 @@ import time
 from . import _limits
 from ._i18n import t
 from ._inputs import number
-from .errors import BadRequest, PrecheckError, ProtocolError, ServerUnavailable
+from .errors import BadRequest, PrecheckError, ProtocolError, QuotaError, ServerUnavailable
 
 TYPES = ('ising', 'qubo')
-VARIABLE_TYPES = {'ising': 'spin', 'qubo': 'binary'}
 DOMAINS = {'ising': (-1, 1), 'qubo': (0, 1)}
 CONTRACT_MIN = (0, 3, 0)          # the platform contract that accepts problems[] in POST /jobs
 CACHE_S = 600.0                   # a platform that supports problems keeps supporting them
@@ -251,11 +250,6 @@ class Problem(object):
         return cls(type, num_variables, quadratic, linear, offset, name)
 
     @property
-    def variable_type(self):
-        """'spin' for Ising problems, 'binary' for QUBO: the same word as Samples.variable_type."""
-        return VARIABLE_TYPES[self.type]
-
-    @property
     def num_terms(self):
         return len(self.quadratic) + len(self.linear)
 
@@ -315,11 +309,11 @@ class Samples(object):
                         finished
     best                the lowest-energy Sample (best.values, best.energy); None unless finished
     energies            [sample.energy, ...] in the order of samples
-    variable_type       'spin' (values are -1 / +1) or 'binary' (values are 0 / 1)
+    problem_type        'ising' (values are -1 / +1) or 'qubo' (values are 0 / 1)
     energy_trace        the machine's energy during the run, converted to the platform's energy definition; None
                         when the machine gives none or it could not be converted
     device_time_us      compute time reported by the machine, in microseconds
-    problem_type / num_variables   from the task's program section
+    num_variables       from the task's program section
     error               why it failed {category, stage, retryable, detail, vars}; None on success
     name / seq / task_id / target / raw   problem name, position in the job, task ID, target, the task detail as is
 
@@ -336,9 +330,8 @@ class Samples(object):
         self.backend = d.get('chip') or self.target
         self.name = d.get('name') or None
         self.seq = (d.get('job') or {}).get('seq')
-        self.problem_type = program.get('type')
+        self.problem_type = result.get('problem_type') or program.get('type')
         self.num_variables = program.get('num_variables')
-        self.variable_type = result.get('variable_type') or VARIABLE_TYPES.get(self.problem_type)
         finished = self.status == 'Finished'
         rows = result.get('samples') if finished and isinstance(result.get('samples'), list) else None
         self.samples = None if rows is None else [_sample(r) for r in rows if isinstance(r, dict)]
@@ -380,7 +373,7 @@ def device_rows(payload):
             out.append({'name': row['name'], 'kind': 'ising', 'paradigm': row.get('paradigm') or 'ising',
                         'status': row.get('status'), 'n_qubits': None, 'queue': row.get('queue'),
                         'limits': row.get('limits'), 'technology': row.get('technology'),
-                        'max_variables': row.get('max_variables'), 'variable_types': row.get('variable_types')})
+                        'max_variables': row.get('max_variables'), 'problem_types': row.get('problem_types')})
     return out
 
 
@@ -427,7 +420,9 @@ def _count(v):
 
 
 def check_limits(client, target, problems):
-    """Check problems against the target's limits; raise PrecheckError (vars['local'] True) without sending.
+    """Check problems against the target's limits without sending, with the platform's own error for each
+    (vars['local'] True): too many problems → QuotaError job_too_large, too many variables → PrecheckError
+    precheck.problemInvalid (field num_variables), too many terms → PrecheckError precheck.problemTooLarge.
     Skipped when the limits cannot be read, as for circuits."""
     lim = _limits.fetch(client, target)
     if not lim:
@@ -435,10 +430,9 @@ def check_limits(client, target, problems):
     url = _limits.metadata_url(client.api, target)
     most = _count(lim.get('max_problems_per_job'))
     if most is not None and len(problems) > most:
-        raise PrecheckError(t('ising.too_many_problems', target, most, len(problems), url),
-                            category='precheck.problemTooLarge',
-                            vars={'n_problems': len(problems), 'max_problems_per_job': most, 'limits_url': url,
-                                  'local': True})
+        raise QuotaError(t('ising.too_many_problems', target, most, len(problems), url), code='job_too_large',
+                         vars={'requested': len(problems), 'existing': 0, 'max': most, 'limits_url': url,
+                               'local': True})
     max_vars, max_terms = _count(lim.get('max_variables')), _count(lim.get('max_terms'))
     many = len(problems) > 1
     for i, p in enumerate(problems):
@@ -446,12 +440,12 @@ def check_limits(client, target, problems):
         if max_vars is not None and p.num_variables > max_vars:
             raise PrecheckError(t('ising.too_many_variables', where, target, max_vars, p.num_variables, url),
                                 category='precheck.problemInvalid',
-                                vars={'num_variables': p.num_variables, 'max_variables': max_vars, 'task_index': i,
-                                      'limits_url': url, 'local': True})
+                                vars={'task_index': i, 'field': 'num_variables', 'num_variables': p.num_variables,
+                                      'max_variables': max_vars, 'limits_url': url, 'local': True})
         if max_terms is not None and p.num_terms > max_terms:
             raise PrecheckError(t('ising.too_many_terms', where, target, max_terms, p.num_terms, url),
                                 category='precheck.problemTooLarge',
-                                vars={'num_terms': p.num_terms, 'max_terms': max_terms, 'task_index': i,
+                                vars={'task_index': i, 'num_terms': p.num_terms, 'max_terms': max_terms,
                                       'limits_url': url, 'local': True})
 
 
@@ -476,8 +470,14 @@ class IsingMethods(object):
         """Submit one Problem, or a list of them as one job (one task per problem, in order); returns a Job.
 
         Before sending: checks that the platform supports Ising problems (contract 0.3.0 or later, else
-        ServerUnavailable) and the target's limits (PrecheckError with vars['local'] True). Ising problems take
-        no shots and no compiler. job.results() returns one Samples per problem, in submission order."""
+        ServerUnavailable) and the target's limits (see check_limits; vars['local'] True). Ising problems take
+        no shots and no compiler, and cannot be appended to a job later. job.results() returns one Samples per
+        problem, in submission order.
+
+        The platform rejects with PrecheckError: precheck.paradigmMismatch (the target is not an Ising machine),
+        precheck.unknownDevice, precheck.problemInvalid (vars task_index, field; field 'precision' means the
+        machine cannot represent the weights at its precision), precheck.problemTooLarge; QuotaError
+        job_too_large for too many problems; DeviceUnavailable when the machine is not online."""
         single = isinstance(problems, Problem)
         items = [problems] if single else list(problems)
         if not items:

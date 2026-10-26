@@ -11,7 +11,7 @@ import pytest
 
 import quafu
 from quafu import ising
-from quafu.errors import BadRequest, JobFailed, NotLoggedIn, PrecheckError, ServerUnavailable
+from quafu.errors import BadRequest, JobFailed, NotLoggedIn, PrecheckError, QuotaError, ServerUnavailable
 from quafu.ising import Problem, Samples
 
 from ..helpers import BELL, JID, KEY, accepted, dispatcher_error, job_status, task_detail
@@ -34,18 +34,18 @@ def ising_md(**kw):
 
 
 def ising_detail(seq=0, status='Finished', samples=None, ptype='ising', error=None, job_id=JID, result=True):
-    """伊辛任务的详情（§3.3、§3.4）：没有 circuit 段，有 program 段；result.type 为 samples。"""
+    """伊辛任务的详情（契约 06 §3.18）：circuit 为 null，有 program 段；result.type 为 samples、problem_type 说是哪种题，
+    samples 按能量升序（第一条即最优），没有 best_energy。"""
     if samples is None:
         samples = [{'values': [-1, 1, -1], 'energy': -1.5, 'occurrences': 1},
                    {'values': [1, -1, 1], 'energy': -0.5, 'occurrences': 2}]
     res = None
     if status == 'Finished' and result:
-        res = {'type': 'samples', 'variable_type': 'spin' if ptype == 'ising' else 'binary', 'samples': samples,
-               'best_energy': min(s['energy'] for s in samples) if samples else None,
-               'energy_trace': [0.5, -0.5, -1.5], 'device_time_us': 100000}
+        res = {'type': 'samples', 'problem_type': ptype, 'samples': samples, 'energy_trace': [0.5, -0.5, -1.5],
+               'device_time_us': 100000}
     return (200, {
         'schema_version': '1', 'included': [], 'task_id': '%s-%d' % (job_id, seq), 'status': status, 'kind': 'real',
-        'target': TARGET, 'chip': TARGET, 'name': 'triangle',
+        'target': TARGET, 'chip': TARGET, 'name': 'triangle', 'circuit': None,
         'job': {'job_id': job_id, 'mode': 'single', 'seq': seq, 'n_tasks': 1},
         'program': {'paradigm': 'ising', 'type': ptype, 'num_variables': 3, 'num_terms': 4,
                     'fingerprint': 'sha256:00'},
@@ -121,7 +121,7 @@ def test_payload_lists_only_non_zero_terms_and_folds_repeats():
                            [(1, 0.0), (2, 1.0), (2, 1.0)], offset=2)
     assert p.to_payload() == {'type': 'qubo', 'num_variables': 4, 'quadratic': [[2, 3, 1.0]], 'linear': [[2, 2.0]],
                               'offset': 2.0}
-    assert p.num_terms == 2 and p.variable_type == 'binary'
+    assert p.num_terms == 2
     named = Problem.from_qubo([[1]], name='one')
     assert named.to_payload()['name'] == 'one' and 'name' not in p.to_payload()
 
@@ -366,9 +366,10 @@ def test_too_many_terms_is_counted_after_merging(platform, c):
 
 def test_too_many_problems_per_job_is_refused_locally(platform, c):
     platform.route('GET', '/backends/%s/metadata' % TARGET, ising_md(max_problems_per_job=2))
-    with pytest.raises(PrecheckError) as e:
+    with pytest.raises(QuotaError) as e:                       # 与平台同一个码：job_too_large
         c.submit_problems([Problem.from_qubo([[1]])] * 3, TARGET)
-    assert e.value.category == 'precheck.problemTooLarge' and e.value.vars['n_problems'] == 3
+    assert e.value.code == 'job_too_large' and e.value.vars['local'] is True
+    assert (e.value.vars['requested'], e.value.vars['existing'], e.value.vars['max']) == (3, 0, 2)
     assert not platform.posts('/jobs')
 
 
@@ -398,7 +399,7 @@ def test_result_of_an_ising_job_is_samples(platform, c, clock):
     assert r.best == ([-1, 1, -1], -1.5, 1) and r.best.values == [-1, 1, -1] and r.best.energy == -1.5
     assert [s.occurrences for s in r.samples] == [1, 2] and r.energies == [-1.5, -0.5]
     assert r.energy_trace == [0.5, -0.5, -1.5] and r.device_time_us == 100000
-    assert r.variable_type == 'spin' and r.problem_type == 'ising' and r.num_variables == 3
+    assert r.problem_type == 'ising' and r.num_variables == 3
     assert r.task_id == JID + '-0' and r.name == 'triangle' and r.target == TARGET and r.raw['program']
     assert repr(r) == "Samples(task_id='%s-0', best_energy=-1.5, n_samples=2)" % JID
     assert '/jobs/%s/tasks/0' % JID in platform.paths()
@@ -419,7 +420,7 @@ def test_best_is_the_lowest_energy_even_if_unsorted_and_values_come_back_as_ints
     platform.route('GET', '/jobs/%s/tasks/0' % JID, ising_detail(samples=rows, ptype='qubo'))
     r = c.solve_qubo([[1, 0], [0, 1]], TARGET).result()
     assert r.best == ([0, 1], -3.0, 4) and type(r.best.values[0]) is int
-    assert r.samples[0].occurrences == 1 and r.variable_type == 'binary'
+    assert r.samples[0].occurrences == 1 and r.problem_type == 'qubo'
 
 
 def test_failed_ising_task_raises_job_failed(platform, c, clock):
@@ -491,7 +492,7 @@ def test_devices_merge_ising_devices_and_mark_every_row_with_its_paradigm(fake):
                      'technology': 'superconducting', 'paradigm': 'gate'}],
         'simulated_chips': [{'name': 'Dongling-sim-jiuding', 'status': 'standby', 'n_qubits': 84, 'max_qubits': 30}],
         'ising_devices': [{'name': TARGET, 'paradigm': 'ising', 'technology': 'photonic', 'status': 'online',
-                           'max_variables': 1000, 'variable_types': ['spin', 'binary'], 'queue': 0, 'limits': lim},
+                           'max_variables': 1000, 'problem_types': ['ising', 'qubo'], 'queue': 0, 'limits': lim},
                           {'status': 'online'}, 'garbage'],
         'quantum_annealers': [{'name': 'future'}],          # 不认识的新顶层数组：不崩，也不列
         'fetched_at': 't'}))
@@ -500,7 +501,7 @@ def test_devices_merge_ising_devices_and_mark_every_row_with_its_paradigm(fake):
     assert [d['paradigm'] for d in ds] == ['gate', 'gate', 'gate', 'gate', 'ising']
     assert ds[-1] == {'name': TARGET, 'kind': 'ising', 'paradigm': 'ising', 'status': 'online', 'n_qubits': None,
                       'queue': 0, 'limits': lim, 'technology': 'photonic', 'max_variables': 1000,
-                      'variable_types': ['spin', 'binary']}
+                      'problem_types': ['ising', 'qubo']}
 
 
 def test_devices_from_an_older_platform_get_paradigm_gate(fake):
@@ -518,35 +519,71 @@ def test_qiskit_provider_does_not_list_ising_machines(fake, make_client):
     assert [b.name for b in QuafuProvider(client=make_client()).backends()] == ['sim']
 
 
-# ── 错误映射（§3.2 规则表） ──────────────────────────────────────────
+# ── 错误映射（契约 06 §3.18 规则表、§3.11；全部 422） ─────────────────
 
-@pytest.mark.parametrize('code, vars_, words', [
-    ('job.paradigmMismatch', {}, ['Ising machines', 'paradigm']),
-    ('job.problemsConflict', {}, ['not both']),
-    ('job.fieldNotApplicable', {'field': 'shots'}, ['shots']),
+@pytest.mark.parametrize('code, field, words', [
+    ('problems_conflict', 'circuits', ['single or collection', 'circuits']),
+    ('field_not_applicable', 'shots', ['take no shots']),
 ])
-def test_job_shape_rejections_are_bad_requests_with_our_own_text(platform, c, code, vars_, words):
-    platform.route('POST', '/jobs', (422, dict(dispatcher_error(code, '平台原文'), vars=vars_)))
+def test_body_shape_rejections_are_bad_requests_with_our_own_text(platform, c, code, field, words):
+    platform.route('POST', '/jobs', (422, {'error': '平台原文', 'code': code, 'vars': {'field': field}}))
     with pytest.raises(BadRequest) as e:
         c.solve_ising(TRIANGLE_J, target=TARGET)
     assert e.value.code == code and e.value.status == 422 and code in str(e.value)
     assert all(w in str(e.value) for w in words) and '平台原文' not in str(e.value)
 
 
-def test_paradigm_mismatch_in_chinese(platform, c, monkeypatch):
-    monkeypatch.setenv('QUAFU_LANG', 'zh')
-    platform.route('POST', '/jobs', (422, dispatcher_error('job.paradigmMismatch', 'x')))
-    with pytest.raises(BadRequest) as e:
-        c.solve_ising(TRIANGLE_J, target=TARGET)
-    assert '伊辛机' in str(e.value)
-
-
-@pytest.mark.parametrize('code', ['precheck.problemInvalid', 'precheck.problemTooLarge'])
-def test_problem_prechecks_are_precheck_errors(platform, c, code):
-    platform.route('POST', '/jobs', (422, dispatcher_error(code, '第 0 个问题不合规', task_index=0, field='quadratic')))
+@pytest.mark.parametrize('paradigm, words', [('gate', 'circuits only'), ('ising', 'Ising problems only')])
+def test_paradigm_mismatch_says_what_the_target_takes(platform, c, paradigm, words):
+    platform.route('POST', '/jobs', (422, dispatcher_error('precheck.paradigmMismatch', '平台原文', device='sim',
+                                                           paradigm=paradigm)))
     with pytest.raises(PrecheckError) as e:
         c.solve_ising(TRIANGLE_J, target=TARGET)
-    assert e.value.category == code and e.value.vars['task_index'] == 0 and not e.value.vars.get('local')
+    assert e.value.category == 'precheck.paradigmMismatch' and e.value.vars == {'device': 'sim', 'paradigm': paradigm}
+    assert 'sim' in str(e.value) and words in str(e.value) and '平台原文' not in str(e.value)
+
+
+def test_paradigm_mismatch_in_chinese(platform, c, monkeypatch):
+    monkeypatch.setenv('QUAFU_LANG', 'zh')
+    platform.route('POST', '/jobs', (422, dispatcher_error('precheck.paradigmMismatch', 'x', device='sim',
+                                                           paradigm='gate')))
+    with pytest.raises(PrecheckError) as e:
+        c.solve_ising(TRIANGLE_J, target=TARGET)
+    assert '只收量子线路' in str(e.value) and '伊辛机' in str(e.value)
+
+
+def test_precision_rejection_tells_the_user_what_to_do(platform, c, monkeypatch):
+    platform.route('POST', '/jobs', (422, dispatcher_error('precheck.problemInvalid', '系数精度超出', task_index=0,
+                                                           field='precision')))
+    with pytest.raises(PrecheckError) as e:
+        c.solve_qubo({(0, 1): 1.0, (0, 0): 0.001}, TARGET)
+    assert e.value.category == 'precheck.problemInvalid' and e.value.vars['field'] == 'precision'
+    assert 'precision' in str(e.value) and 'Round the weights' in str(e.value)
+    monkeypatch.setenv('QUAFU_LANG', 'zh')
+    with pytest.raises(PrecheckError) as e:
+        c.solve_qubo({(0, 1): 1.0, (0, 0): 0.001}, TARGET)
+    assert '精度' in str(e.value) and '整数' in str(e.value)
+
+
+@pytest.mark.parametrize('code, vars_', [
+    ('precheck.problemInvalid', {'task_index': 0, 'field': 'quadratic', 'index': 2}),
+    ('precheck.problemTooLarge', {'task_index': 0, 'num_terms': 9, 'max_terms': 4,
+                                  'limits_url': 'https://quafu.test/api/v1/backends/%s/metadata' % TARGET}),
+    ('precheck.unknownDevice', {'device': TARGET}),
+])
+def test_problem_prechecks_are_precheck_errors(platform, c, code, vars_):
+    platform.route('POST', '/jobs', (422, dispatcher_error(code, '第 0 个问题不合规', **vars_)))
+    with pytest.raises(PrecheckError) as e:
+        c.solve_ising(TRIANGLE_J, target=TARGET)
+    assert e.value.category == code and e.value.vars == vars_
+
+
+def test_too_many_problems_from_the_platform_is_a_quota_error(platform, c):
+    platform.route('POST', '/jobs', (422, {'error': '一个任务组最多 2 道问题', 'code': 'job_too_large',
+                                           'vars': {'requested': 3, 'existing': 0, 'max': 2}}))
+    with pytest.raises(QuotaError) as e:
+        c.submit_problems([Problem.from_qubo([[1]])] * 3, TARGET)
+    assert e.value.code == 'job_too_large' and e.value.vars['max'] == 2
 
 
 def test_the_ising_module_imports_neither_numpy_nor_qiskit():

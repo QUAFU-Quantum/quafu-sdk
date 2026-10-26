@@ -213,15 +213,9 @@ MESSAGES = {
                           '任务组 %s 已关闭，不能再追加；新建一个任务组'),
     'errors.job.not_iterative': ('Job %s is not iterative and cannot accept more tasks', '任务组 %s 不是迭代式，不能追加'),
     'errors.job.no_template': ('Job %s has no template; append circuits instead', '任务组 %s 没有模板，只能按 circuits 追加'),
-    'errors.job.paradigm_mismatch': ('This target does not take this kind of job [%s]: circuits go to gate-based '
-                                     'devices and Ising problems to Ising machines. The paradigm column of '
-                                     'quafu.devices() tells them apart.',
-                                     '这个目标不收这类任务 [%s]：线路交给门电路设备，伊辛问题交给伊辛机，'
-                                     '可在 quafu.devices() 的 paradigm 列区分'),
-    'errors.job.problems_conflict': ('A job carries either Ising problems or circuits (circuits / template_qasm / '
-                                     'points), not both, and a job of Ising problems is single or collection [%s]',
-                                     '一个任务组只能交伊辛问题或线路（circuits / template_qasm / points）之一，'
-                                     '伊辛问题的任务组只能是 single 或 collection [%s]'),
+    'errors.job.problems_conflict': ('Ising problems go alone in a single or collection job; remove or change field '
+                                     '%s [%s]',
+                                     '伊辛问题只能单独组成 single 或 collection 任务组，请去掉或改掉字段 %s [%s]'),
     'errors.job.field_not_applicable': ('Ising problems take no %s [%s]', '伊辛问题不收 %s [%s]'),
     'errors.not_cancellable.collecting': ('results are being collected; wait for the result', '正在取回结果，等它出结果即可'),
     'errors.not_cancellable.finished': ('it has already finished', '已经完成'),
@@ -292,6 +286,19 @@ MESSAGES = {
     'errors.precheck.missing_params': ('the job declares no parameters; declare parameter names and units before '
                                        'submitting circuits with parameter values',
                                        '任务组没有声明 parameters，带参数值的线路要先声明参数与单位'),
+    'errors.precheck.paradigm_mismatch': ('Target %s takes %s only [%s]. Circuits go to gate-based devices and '
+                                          'Ising problems to Ising machines; the paradigm column of quafu.devices() '
+                                          'tells them apart.',
+                                          '目标 %s 只收%s [%s]。线路交给门电路设备，伊辛问题交给伊辛机，'
+                                          '可在 quafu.devices() 的 paradigm 列区分'),
+    'errors.paradigm.gate': ('circuits', '量子线路'),
+    'errors.paradigm.ising': ('Ising problems', '伊辛问题'),
+    'errors.precheck.precision': ('Problem #%s needs more coefficient precision than this Ising machine has [%s]: '
+                                  'after conversion to Ising form, all weights must scale by one common factor to '
+                                  "integers within the machine's range. Round the weights to small integers, or "
+                                  'narrow their range, and submit again.',
+                                  '第 %s 个问题的系数精度超出这台伊辛机的能力 [%s]：换成 Ising 形式后，所有系数要能按同一'
+                                  '比例缩放成机器能表示的整数。请把系数取成较小的整数，或缩小它们的动态范围后重新提交'),
     'errors.precheck.undeclared': ('undeclared parameters: %s', '未声明的参数：%s'),
     'errors.forbidden': ('Permission denied [%s]: %s', '没有权限 [%s]：%s'),
     'errors.device_unavailable': ('Device unavailable: %s', '设备暂不可用：%s'),

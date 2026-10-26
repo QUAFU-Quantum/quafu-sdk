@@ -249,7 +249,7 @@ class Client(BaseClient, IsingMethods):
         另有两种不指定某一台的目标：'all-race'（同时发给所有在线真机、取最先完成的）与 'all-redispatch'
         （先发一台，不可用自动换下一台）。公开数据，不需要登录。
         paradigm 是计算范式：'gate'（收线路）或 'ising'（收伊辛问题，见 solve_qubo）。伊辛机排在最后，kind 为 'ising'、
-        n_qubits 为 None，另带 technology、max_variables、variable_types；它们的 limits 是 max_variables、max_terms、
+        n_qubits 为 None，另带 technology、max_variables、problem_types；它们的 limits 是 max_variables、max_terms、
         max_problems_per_job。"""
         d = self._request('GET', '/devices', auth=False)
         out = []

@@ -232,11 +232,13 @@ _JOB_CONFLICT_TEXT = {
     'job_has_no_template': 'errors.job.no_template',
 }
 
-# 伊辛问题（契约 0.3.0）的提交拒绝：请求本身的形状不对，归 BadRequest；平台原文只有中文，按界面语言重写
+# 伊辛问题（契约 0.3.0，06 §3.18）的提交拒绝：请求体的形状不对，归 BadRequest，vars.field 指明是哪个字段；
+# 平台原文只有中文，按界面语言重写
 _PROBLEM_REQUEST_TEXT = {
-    'job.paradigmMismatch': 'errors.job.paradigm_mismatch',
-    'job.problemsConflict': 'errors.job.problems_conflict',
+    'problems_conflict': 'errors.job.problems_conflict',
+    'field_not_applicable': 'errors.job.field_not_applicable',
 }
+_PARADIGM_TEXT = {'gate': 'errors.paradigm.gate', 'ising': 'errors.paradigm.ising'}
 
 _NOT_CANCELLABLE_TEXT = {
     'collecting': 'errors.not_cancellable.collecting',
@@ -354,6 +356,12 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
         return QuotaError(t('errors.quota', code, text, tail), retry_after=ra, vars=vars_, **kw)
     if code.startswith('precheck.'):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        if code == 'precheck.paradigmMismatch':
+            takes = t(_PARADIGM_TEXT[vars_['paradigm']]) if vars_.get('paradigm') in _PARADIGM_TEXT else '?'
+            return PrecheckError(t('errors.precheck.paradigm_mismatch', vars_.get('device') or '?', takes, code),
+                                 **dict(kw, **cat))
+        if code == 'precheck.problemInvalid' and vars_.get('field') == 'precision':
+            return PrecheckError(t('errors.precheck.precision', vars_.get('task_index', '?'), code), **dict(kw, **cat))
         reason = vars_.get('reason')
         notes = [t('errors.precheck.reason', reason)] if reason else []
         if reason == 'unmeasured_clbit':
@@ -389,11 +397,8 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
             text = t('errors.device_unavailable.jiuding_sim', device)
         return DeviceUnavailable(t('errors.device_unavailable', text), **dict(kw, **cat))
     if code in _PROBLEM_REQUEST_TEXT:
-        return BadRequest(t(_PROBLEM_REQUEST_TEXT[code], code), **kw)
-    if code == 'job.fieldNotApplicable':
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
-        return BadRequest(t('errors.job.field_not_applicable', vars_.get('field') or 'shots / circuit_level', code),
-                          **kw)
+        return BadRequest(t(_PROBLEM_REQUEST_TEXT[code], vars_.get('field') or '?', code), **kw)
     if status in (400, 409, 422):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
         field = t('errors.field', vars_['field']) if vars_.get('field') else ''
