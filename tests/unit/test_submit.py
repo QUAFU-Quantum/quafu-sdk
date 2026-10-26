@@ -279,13 +279,15 @@ def test_devices_lists_every_target_name(fake):
                     {'name': 'Ling', 'status': 'calibrating', 'n_qubits': 112, 'queue': None,
                      'simulator_available': False}]}))
     ds = quafu.devices()
-    assert ds == [{'name': 'sim', 'kind': 'sim', 'status': 'online', 'n_qubits': 24, 'queue': None, 'limits': lim_sim},
+    # 每行都带计算范式 paradigm：这些都是门电路（伊辛机另列，见 test_ising）
+    assert ds == [{'name': 'sim', 'kind': 'sim', 'status': 'online', 'n_qubits': 24, 'queue': None, 'limits': lim_sim,
+                   'paradigm': 'gate'},
                   {'name': 'Dongling', 'kind': 'real', 'status': 'online', 'n_qubits': 84, 'queue': 3,
-                   'limits': lim_real},
+                   'limits': lim_real, 'paradigm': 'gate'},
                   {'name': 'Ling', 'kind': 'real', 'status': 'calibrating', 'n_qubits': 112, 'queue': None,
-                   'limits': None},
+                   'limits': None, 'paradigm': 'gate'},
                   {'name': 'Dongling-sim', 'kind': 'sim', 'status': 'online', 'n_qubits': 84, 'queue': None,
-                   'limits': lim_noisy}]
+                   'limits': lim_noisy, 'paradigm': 'gate'}]
 
 
 def test_devices_lists_jiuding_simulators_with_chip_size_and_qubit_limit(fake):
@@ -297,7 +299,7 @@ def test_devices_lists_jiuding_simulators_with_chip_size_and_qubit_limit(fake):
                              'queue': 2, 'running': 1, 'limits': {'max_qubits': 30}}]}))
     ds = quafu.devices()
     assert ds[-1] == {'name': 'Baihua-sim-jiuding', 'kind': 'sim', 'status': 'starting', 'n_qubits': 156,
-                      'queue': 2, 'max_qubits': 30, 'limits': {'max_qubits': 30}}
+                      'queue': 2, 'max_qubits': 30, 'limits': {'max_qubits': 30}, 'paradigm': 'gate'}
     assert [d['name'] for d in ds] == ['sim', 'Baihua', 'Baihua-sim-jiuding']
 
 
@@ -305,4 +307,4 @@ def test_devices_without_jiuding_simulators_is_unchanged(fake):
     fake.route('GET', '/devices', (200, {'simulator': {'name': 'sim', 'max_qubits': 24, 'status': 'online'},
                                          'devices': [], 'simulated_chips': []}))
     assert quafu.devices() == [{'name': 'sim', 'kind': 'sim', 'status': 'online', 'n_qubits': 24, 'queue': None,
-                                'limits': None}]
+                                'limits': None, 'paradigm': 'gate'}]

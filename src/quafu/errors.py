@@ -232,6 +232,12 @@ _JOB_CONFLICT_TEXT = {
     'job_has_no_template': 'errors.job.no_template',
 }
 
+# 伊辛问题（契约 0.3.0）的提交拒绝：请求本身的形状不对，归 BadRequest；平台原文只有中文，按界面语言重写
+_PROBLEM_REQUEST_TEXT = {
+    'job.paradigmMismatch': 'errors.job.paradigm_mismatch',
+    'job.problemsConflict': 'errors.job.problems_conflict',
+}
+
 _NOT_CANCELLABLE_TEXT = {
     'collecting': 'errors.not_cancellable.collecting',
     'finished': 'errors.not_cancellable.finished',
@@ -382,6 +388,12 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
             # 九鼎模拟此刻没有可用的模拟器：平台原文只有中文，按界面语言重写
             text = t('errors.device_unavailable.jiuding_sim', device)
         return DeviceUnavailable(t('errors.device_unavailable', text), **dict(kw, **cat))
+    if code in _PROBLEM_REQUEST_TEXT:
+        return BadRequest(t(_PROBLEM_REQUEST_TEXT[code], code), **kw)
+    if code == 'job.fieldNotApplicable':
+        vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        return BadRequest(t('errors.job.field_not_applicable', vars_.get('field') or 'shots / circuit_level', code),
+                          **kw)
     if status in (400, 409, 422):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
         field = t('errors.field', vars_['field']) if vars_.get('field') else ''

@@ -16,7 +16,7 @@ import sys
 from ._conflict import ConflictError, check as check_conflict
 from ._i18n import safe_streams, t
 
-VERSION = '0.2.7'                   # 与 quafu.__version__ 同值（测试核对）；这里不 import quafu 取它，理由见上
+VERSION = '0.3.0'                   # 与 quafu.__version__ 同值（测试核对）；这里不 import quafu 取它，理由见上
 
 # 测试注入传输层用；正常运行恒为 None（走真实网络）
 _transport = None

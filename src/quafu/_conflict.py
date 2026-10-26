@@ -18,7 +18,7 @@ PACKAGE = 'quafu'
 OWN_DISTRIBUTION = 'quafu-sdk'
 # 本包目录下的全部顶层条目（模块去掉 .py）。新增模块时同步这里，tests/unit/test_conflict.py 会核对
 OWN_ENTRIES = frozenset(('__init__', '__pycache__', '__main__', '_conflict', '_i18n', '_inputs', '_limits', '_messages',
-                         '_qasm', 'bits', 'cli', 'client',
+                         '_qasm', 'bits', 'cli', 'client', 'ising',
                          'config', 'credentials', 'devices', 'errors', 'jobs', 'oauth', 'qiskit', 'tables', 'transport',
                          'py.typed'))
 

@@ -4,11 +4,31 @@ All notable changes to `quafu-sdk` are documented here. The format follows [Keep
 
 Versioning: patch = bug fixes, following platform-side changes, and wording; minor = new features; major = may break the API (breaking changes are deprecated for one release first).
 
-## [Unreleased]
+## [0.3.0]
+
+Why: the platform is adding Ising machines, which do not run quantum circuits. They take a QUBO or Ising problem and return solution vectors with their energies. Until now the SDK could only submit circuits, so users of these machines had no way in from Python. Needs a platform with contract version 0.3.0 (the platform endpoints are being built alongside; this release is written against that design).
+
+### Added
+
+- Ising problems (new module `quafu.ising`; also at the top level):
+  - `quafu.solve_qubo(Q, target)`, `quafu.solve_ising(J, h=None, target=...)` and `quafu.submit_problems([...], target)` (one problem → a `single` job, a list → a `collection` job, one task per problem in order), and the same three methods on `Client`. They return the existing `Job`. The request is `POST /jobs` with `mode`, `target`, `problems[]`, `name` and `client_ref` (same idempotency key as circuits); `shots` and `circuit_level` are never sent.
+  - `quafu.Problem.from_qubo(Q)`, `Problem.from_ising(J, h)`, `Problem.from_terms(type, num_variables, quadratic, linear)`. `Q` / `J` accept `{(i, j): w}`, a square nested list, or anything with `tolist()` (numpy arrays; numpy is not imported). Checked locally before anything is sent: square shape, indices in range, finite real weights (NaN, infinity, strings and booleans are refused), at least one variable. `Problem.energy(values)` computes the platform's energy, `to_payload()` returns what is sent.
+  - The payload is canonical: `(j, i)` merges into `(i, j)` with `i < j`, repeats add up, diagonal entries fold exactly (`x·x = x` into the linear terms for QUBO, `s·s = 1` into the offset for Ising), zero terms are dropped. The energy is unchanged, every input shape of the same problem gives the same payload, and a dense matrix costs half the terms. Sending every non-zero entry of a full 1000-variable matrix as is would have doubled the term count past `max_terms` and the request body past the platform's size limit.
+  - `Job.result()` / `Job.results()` pick the result class from the task detail: `result.type == "samples"` (or `program.paradigm == "ising"` for a task that has no result yet) gives the new `Samples` (`best`, `samples` as `Sample(values, energy, occurrences)`, `energies`, `energy_trace`, `device_time_us`, `variable_type`, `status` / `ok` / `error`, `raw`); anything else gives `Result` exactly as before. Task details of Ising jobs are fetched without `include=counts,executed`; a job reattached with `quafu.job(id)` learns its paradigm from the first detail.
+  - Contract gate: before submitting, the SDK reads `contract_version` from the public `GET /healthz` (cached per platform; an older answer is asked again after 30 seconds). Below 0.3.0, or none reported, `solve_*` raise `ServerUnavailable` (`sent=False`) with a message in both languages and send nothing, instead of a 422 from an older platform.
+  - Local limits: `limits.max_variables`, `max_terms` and `max_problems_per_job` from `GET /backends/<target>/metadata` are checked before sending, like qubits and shots for circuits; violations raise `PrecheckError` with the platform's category (`precheck.problemInvalid` for too many variables, `precheck.problemTooLarge` for too many terms or problems), `vars['local'] = True` and `limits_url`. Unreadable limits skip the check.
+  - Error mapping for the platform's new rejections: `job.paradigmMismatch`, `job.problemsConflict` and `job.fieldNotApplicable` raise `BadRequest` with our own text in both languages; `precheck.problemInvalid` / `precheck.problemTooLarge` raise `PrecheckError` like other prechecks.
+- `devices()`: every row has a new key `paradigm`: `gate` for every existing row (filled in by the SDK, since older platforms do not send it), `ising` for Ising machines. Ising machines come from the new top-level array `ising_devices` and are listed last with `kind` `ising`, `n_qubits` `None`, and extra keys `technology`, `max_variables`, `variable_types`. Unknown top-level arrays are still ignored.
 
 ### Changed
 
+- `devices()` rows gain the `paradigm` key (see above); code that compares whole rows needs to expect it. Ising machines get their own `kind` value `ising` instead of `real`: scripts that pick `kind == "real"` targets to submit circuits keep working and never land on a machine that cannot run them. The Qiskit adapter's `QuafuProvider.backends()` lists only `paradigm == "gate"` targets for the same reason.
 - Documentation only, no behavior change: the platform's Jiuding simulated chips (`<chip>-sim-jiuding`) now start on demand and are released after a few idle minutes, so their `status` in `devices()` can also be `standby` (no simulator running right now; one starts automatically when you submit). `devices()` already passed `status` through unchanged; its docstring and the README now list `standby` and state that submitting to a `standby` target is accepted normally instead of raising `DeviceUnavailable`. 0.2.7 keeps working against the platform; only its docstring lacks this value.
+
+### Considered and not done
+
+- Reusing `submit()` for problems: it would mix two kinds of input whose options do not overlap (`shots`, `compiler` mean nothing to an Ising machine). Separate functions keep both signatures honest.
+- `job.table()` for Ising jobs and appending problems to iterative jobs: the platform accepts problems only in `single` and `collection` jobs, and `results()` covers collections.
 
 ## [0.2.7] - 2026-10-13
 

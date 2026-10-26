@@ -81,7 +81,7 @@ def test_core_never_imports_qiskit():
     r = subprocess.run([sys.executable, '-c', BLOCK_QISKIT + '\n'.join([
         'import quafu, quafu.cli, quafu.client, quafu.jobs, quafu.oauth, quafu.config, quafu._qasm',
         'import quafu.credentials, quafu.transport, quafu.errors, quafu.bits, quafu.tables, quafu.devices',
-        'import quafu._inputs',
+        'import quafu._inputs, quafu.ising',
         'bad = [m for m in sys.modules if m.split(".")[0] == "qiskit" or m == "quafu.qiskit"]',
         'assert not bad, bad',
     ])], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
