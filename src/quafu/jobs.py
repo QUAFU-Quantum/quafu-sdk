@@ -12,8 +12,15 @@
     job = quafu.open_job('sim', ...)             # 迭代式任务组：看了结果再决定下一轮交什么
     job.append(points=[[0.1]], iteration=0); job.wait(); job.table(); ...; job.close()
 
+    p = job.publish()                            # 把已完成的一条设为公开：p.public_id、p.url（分享链接）
+    job.unpublish()                              # 取消公开：公开 ID 与链接即时作废
+    pt = quafu.public_task('k7m2q9x4bt3w')       # 看别人公开的任务（公开 ID 或整条分享链接）：pt.result、pt.verify()
+
 一个任务组里每条线路是一个任务（task），任务号是「任务组号-序号」，序号从 0 起、就是交线路的顺序。"""
+import hashlib
+import json
 import logging
+import re
 import time
 import uuid
 from urllib.parse import quote, urlencode
@@ -136,6 +143,106 @@ class Result(object):
         if self.counts is None:
             return None
         return bits.expectation_z(self.counts, cbits, self._bit_order())
+
+
+PUBLIC_ID_RE = re.compile(r'^[a-hjkmnp-z2-9]{12}$')
+_SHARE_LINK_RE = re.compile(r'/public-tasks/([A-Za-z0-9]+)/?(?:[?#].*)?$')
+
+
+def parse_public_id(value):
+    """公开 ID 或整条分享链接 → 公开 ID（小写）；认不出返回 None。"""
+    text = str(value or '').strip()
+    m = _SHARE_LINK_RE.search(text)
+    candidate = (m.group(1) if m else text).lower()
+    return candidate if PUBLIC_ID_RE.match(candidate) else None
+
+
+def canonical_record(record):
+    """公开记录的规范化字节：键排序、无空白、UTF-8 原样（与平台算指纹的规则相同）。"""
+    return json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+
+
+class Publication(object):
+    """一条任务的公开状态（所有者看到的）。
+
+    published       是否公开中
+    public_id       公开 ID（12 位）；没公开为 None
+    url             分享链接（平台地址 + /public-tasks/<公开 ID>），粘到浏览器就能打开；没公开为 None
+    published_at    公开时刻；record_sha256 公开时对公开记录算的指纹
+    task_id         这条任务的任务号"""
+
+    def __init__(self, d, base_url, task_id):
+        d = d or {}
+        self.raw = d
+        self.task_id = task_id
+        self.published = bool(d.get('published'))
+        self.public_id = d.get('public_id')
+        path = d.get('share_path')
+        self.url = base_url.rstrip('/') + path if path else None
+        self.published_at = d.get('published_at')
+        self.record_sha256 = d.get('record_sha256')
+
+    def __repr__(self):
+        if not self.published:
+            return 'Publication(task_id=%r, published=False)' % self.task_id
+        return 'Publication(task_id=%r, public_id=%r, url=%r)' % (self.task_id, self.public_id, self.url)
+
+
+class PublicTask(object):
+    """别人公开的一条任务（quafu.public_task 的返回）。内容与所有者本人读到的是同一份详情，只少所有者自己附的 metadata。
+
+    public_id / url     公开 ID 与分享链接
+    result              Result：counts、measurements、executed_qasm、calibration_id… 与所有者 job.result() 的同名字段相同
+    record              平台的公开记录（任务号、执行者类别、线路与实际执行线路的 SHA-256、shots、counts、校准标识、时刻）
+    record_sha256       公开那一刻对 record 算的指纹；integrity 是平台每次读时重算比对的结论：'intact' / 'mismatch'
+    executor            执行者类别：quafu_hardware 真机 / quafu_noisy_simulator 带噪模拟 / quafu_simulator 理想模拟 /
+                        jiuding_simulator 九鼎算力上的理想模拟
+    published_at        公开时刻；attested_by 记录方（'QUAFU'）
+    raw                 平台给的原样
+
+    verify() 在本机重算指纹并核对记录与详情一致。"""
+
+    def __init__(self, d, base_url):
+        self.raw = d
+        pub = d.get('publication') or {}
+        self.public_id = pub.get('public_id')
+        path = pub.get('share_path')
+        self.url = base_url.rstrip('/') + path if path else None
+        self.published_at = pub.get('published_at')
+        self.attested_by = pub.get('attested_by')
+        self.record = pub.get('record') or {}
+        self.record_sha256 = pub.get('record_sha256')
+        self.integrity = pub.get('integrity')
+        self.executor = self.record.get('executor')
+        self.result = Result(d)
+
+    def __repr__(self):
+        return 'PublicTask(public_id=%r, task_id=%r, executor=%r, integrity=%r)' % (
+            self.public_id, self.result.task_id, self.executor, self.integrity)
+
+    @property
+    def task_id(self):
+        return self.result.task_id
+
+    @property
+    def counts(self):
+        return self.result.counts
+
+    def verify(self):
+        """在本机核对，全部成立返回 True，否则 False：
+        1. 按规范化规则对 record 重算 SHA-256，等于平台给的 record_sha256（公开以后记录没被改过）；
+        2. record 里的任务号、计数与详情里的一致；
+        3. 详情里提交线路原文的 SHA-256 等于 record 里的 circuit_sha256。
+        它证明的是「这份详情就是公开时那份记录」，不是平台签名（不防平台自己改）。"""
+        if not self.record or not self.record_sha256:
+            return False
+        if hashlib.sha256(canonical_record(self.record)).hexdigest() != self.record_sha256:
+            return False
+        if self.record.get('task_id') != self.result.task_id or self.record.get('counts') != (self.result.counts or {}):
+            return False
+        text = ((self.raw.get('circuit') or {}).get('submitted') or {}).get('text') or ''
+        want = self.record.get('circuit_sha256')
+        return want is None or hashlib.sha256(text.encode('utf-8')).hexdigest() == want
 
 
 def failure(result, job_id):
@@ -317,6 +424,29 @@ class Job(object):
         d = self.client._request('POST', self._path('/close'), endpoint='job', job_id=self.id)
         self.open, self._status = d.get('open'), d.get('status')
         return d
+
+    def _publication_path(self, seq):
+        from ._inputs import index
+        return self._path('/tasks/%d/publication' % index(seq, 'seq'))
+
+    def _publication(self, method, seq):
+        task_id = '%s-%d' % (self.id, seq)
+        d = self.client._request(method, self._publication_path(seq), endpoint='task', task_id=task_id, job_id=self.id)
+        return Publication(d, self.client.base_url, task_id)
+
+    def publish(self, seq=0):
+        """把任务组里第 seq 条（默认第一条）设为公开，返回 Publication：public_id 与 url（分享链接）发给别人即可，
+        别人用 quafu.public_task(…) 或浏览器打开就能看到与你一样的结果。只限已完成的任务（否则抛 NotPublishable）；
+        已经公开的再调返回同一个公开 ID。"""
+        return self._publication('POST', seq)
+
+    def unpublish(self, seq=0):
+        """取消公开第 seq 条：公开 ID 与分享链接即时作废；再公开会换一个新的公开 ID。本来没公开也不报错。"""
+        return self._publication('DELETE', seq)
+
+    def publication(self, seq=0):
+        """第 seq 条现在的公开状态（Publication）。"""
+        return self._publication('GET', seq)
 
     def cancel(self):
         """取消任务组里还能取消的任务，返回平台的回应：cancelled_now（还在平台队列里、直接取消的条数）、
