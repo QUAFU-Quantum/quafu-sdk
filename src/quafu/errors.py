@@ -180,7 +180,7 @@ class PublicTaskNotFound(QuafuError):
 
 class NotPublishable(_TaskError):
     """这条任务不能公开（not_publishable）：reason 为 not_finished（还没完成，task_status 是当时的状态）
-    或 demo（平台预置的演示线路）。"""
+    、demo（平台预置的演示线路）或 ising（伊辛问题的任务，暂不支持公开）。"""
 
     def __init__(self, message='', task_id=None, reason=None, task_status=None, **kw):
         super().__init__(message, task_id=task_id, **kw)
@@ -249,7 +249,8 @@ _JOB_CONFLICT_TEXT = {
     'job_has_no_template': 'errors.job.no_template',
 }
 
-_NOT_PUBLISHABLE_TEXT = {'demo': 'errors.not_publishable.demo', 'not_finished': 'errors.not_publishable.not_finished'}
+_NOT_PUBLISHABLE_TEXT = {'demo': 'errors.not_publishable.demo', 'not_finished': 'errors.not_publishable.not_finished',
+                         'ising': 'errors.not_publishable.ising'}
 _NOT_CANCELLABLE_TEXT = {
     'collecting': 'errors.not_cancellable.collecting',
     'finished': 'errors.not_cancellable.finished',

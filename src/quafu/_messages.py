@@ -249,6 +249,7 @@ MESSAGES = {
     'errors.not_publishable': ("Task %s can't be made public: %s", '任务 %s 不能公开：%s'),
     'errors.not_publishable.not_finished': ('only finished tasks can be made public', '只有已完成的任务才能公开'),
     'errors.not_publishable.demo': ('platform demo circuits cannot be made public', '平台预置的演示线路不能公开'),
+    'errors.not_publishable.ising': ('Ising-problem tasks cannot be made public yet', '伊辛问题的任务暂不能公开'),
     'errors.no_endpoint': ('The platform has no such endpoint (HTTP 404). Check that the platform URL '
                            '(QUAFU_BASE_URL) is correct.',
                            '平台上没有这个端点（HTTP 404）；检查平台地址（QUAFU_BASE_URL）是否指对了'),

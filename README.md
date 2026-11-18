@@ -418,7 +418,7 @@ All exceptions inherit from `quafu.QuafuError`; error messages explain the cause
 | `JobFailed` / `JobCancelled` | Circuit run failed / was cancelled; `retryable` indicates whether resubmitting unchanged makes sense |
 | `JobNotFound` | The job does not exist or does not belong to the current account |
 | `PublicTaskNotFound` | No public task with that ID: wrong ID, or its owner made it private |
-| `NotPublishable` | The task cannot be made public: `reason` is `not_finished` or `demo` (a platform demo circuit) |
+| `NotPublishable` | The task cannot be made public: `reason` is `not_finished`, `demo` (a platform demo circuit) or `ising` (an Ising-problem task; not supported yet) |
 | `JobClosed` | Appending tasks to a closed or non-iterative job |
 | `Timeout` | Waiting exceeded `timeout` |
 | `ServerUnavailable` | Cannot connect to the platform, or the platform is temporarily unavailable |

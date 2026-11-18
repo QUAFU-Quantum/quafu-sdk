@@ -67,6 +67,14 @@ def test_not_publishable_is_explained(fake, c, zh):
     assert e.value.reason == 'not_finished' and e.value.task_status == 'Running' and '只有已完成' in str(e.value)
 
 
+def test_ising_task_is_not_publishable(fake, c, zh):
+    fake.route('POST', PUB_PATH, (409, {'error': '伊辛问题的任务暂不能公开', 'code': 'not_publishable',
+                                        'vars': {'reason': 'ising'}}))
+    with pytest.raises(NotPublishable) as e:
+        c.publish(JID + '-0')
+    assert e.value.reason == 'ising' and '伊辛问题的任务暂不能公开' in str(e.value)
+
+
 def test_bad_task_id_is_refused_before_sending(fake, c):
     with pytest.raises(BadRequest):
         c.publish('not-a-task')
