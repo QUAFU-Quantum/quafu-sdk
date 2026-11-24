@@ -13,8 +13,8 @@
     quafu.device('Dongling').calibration()     # 设备详情与校准数据；quafu.calibration(id)
     quafu.stats()                              # 本人用量与额度（北京时间 23:00 重置）
     quafu.Client(api_key='qf_…')               # 显式身份
-    quafu.solve_qubo(Q, target=…)              # 伊辛机：交 QUBO / Ising 问题，job.result() 取回解向量与能量（Samples）
-    quafu.Problem.from_ising(J, h); quafu.submit_problems([…], target)   # 本地构造、算能量；一次交多个问题
+    quafu.solve_ising(quadratic, linear, target=…)   # 伊辛机：交一道 Ising（或 solve_qubo 交 QUBO）问题，等结果，返回 Samples
+    quafu.Problem.from_ising(J, h); quafu.submit_problems([…], target)   # 本地构造、算能量；一次交多个问题，不等结果
     from quafu.qiskit import QuafuProvider, sweep   # Qiskit 后端适配与参数化线路扫参（需要 qiskit）
 
 运行时只用标准库；Qiskit 线路作为输入时需要 pip install "quafu-sdk[qiskit]"。"""

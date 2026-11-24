@@ -216,7 +216,15 @@ MESSAGES = {
     'errors.job.problems_conflict': ('Ising problems go alone in a single or collection job; remove or change field '
                                      '%s [%s]',
                                      '伊辛问题只能单独组成 single 或 collection 任务组，请去掉或改掉字段 %s [%s]'),
+    'errors.quota.device_credits': ('Not enough quota on this Ising machine for this problem (available %s, needed %s). '
+                                    'This quota is granted per account and does not reset daily; contact the platform '
+                                    'to have more added (free of charge).',
+                                    '这台伊辛机的额度不够这一题（可用 %s，需要 %s）。这项额度按账户发放，不按天重置；'
+                                    '需要更多请联系平台免费添加'),
     'errors.job.field_not_applicable': ('Ising problems take no %s [%s]', '伊辛问题不收 %s [%s]'),
+    'errors.job.sampling_not_supported': ("This Ising machine does not take mode='sampling'; submit the problem "
+                                          'with the default mode (optimization) [%s]',
+                                          "这台伊辛机不收 mode='sampling'，请按默认的 optimization 提交 [%s]"),
     'errors.not_cancellable.collecting': ('results are being collected; wait for the result', '正在取回结果，等它出结果即可'),
     'errors.not_cancellable.finished': ('it has already finished', '已经完成'),
     'errors.not_cancellable.failed': ('it has already failed', '已经失败'),
@@ -325,6 +333,11 @@ MESSAGES = {
 
     # ── Ising problems (ising.py) ────────────────────────────────────
     'ising.type_invalid': ('type must be %s; got %r', 'type 只能是 %s，当前为 %r'),
+    'ising.mode_invalid': ('mode must be %s; got %r', 'mode 只能是 %s，当前为 %r'),
+    'ising.samples_needs_sampling': ("samples=%r only applies to mode='sampling'; an optimization problem takes no "
+                                     'samples',
+                                     "samples=%r 只对 mode='sampling' 有意义；求最优解（optimization）的问题不收 samples"),
+    'ising.samples_type': ('samples must be an integer; got %r', 'samples 应为整数，当前为 %r'),
     'ising.num_variables': ('num_variables must be an integer of at least 1; got %r',
                             'num_variables 应为不小于 1 的整数，当前为 %r'),
     'ising.size_mismatch': ('The inputs disagree on the number of variables (%s); pass num_variables or fix the '

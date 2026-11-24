@@ -2,13 +2,21 @@
 """Ising problems: QUBO or Ising models solved on the platform's Ising machines (no quantum circuits).
 
     import quafu
-    job = quafu.solve_qubo({(0, 1): 2.0, (0, 0): -1.0, (1, 1): -1.0}, target='<Ising machine>')
-    r = job.result()                     # Samples
-    r.best.values, r.best.energy         # lowest-energy solution vector and its energy
+    result = quafu.solve_ising(quadratic={(0, 1): 1.0, (1, 2): 1.0, (0, 2): 1.0}, linear={0: 0.5},
+                               target='<Ising machine>')     # submits and waits; returns Samples
+    best = result.samples[0]             # samples are sorted by energy, lowest first
+    best.values, best.energy             # solution vector and its energy
+
+    quafu.solve_qubo(Q, target=...)      # the same for QUBO (variables 0 / 1)
+    quafu.solve_ising(J, h, target=..., mode='sampling', samples=100)   # sample solutions instead of minimizing
 
     p = quafu.Problem.from_ising(J, h)   # build locally, check, compute energies
     p.energy([1, -1, 1])
-    job = quafu.submit_problems([p, q], target='<Ising machine>')   # several problems in one job
+    job = quafu.submit_problems([p, q], target='<Ising machine>')   # several problems in one job; no waiting
+    job.results()                        # one Samples per problem, in order
+
+quadratic is the coupling matrix (J for Ising, Q for QUBO), linear the fields (h); both take a dict, a square nested
+list (quadratic) or a list of N weights (linear), or a numpy array.
 
 Energy, as the platform defines it for every Ising machine (the goal is to minimize it):
 
@@ -38,6 +46,7 @@ from ._inputs import number
 from .errors import BadRequest, PrecheckError, ProtocolError, QuotaError, ServerUnavailable
 
 TYPES = ('ising', 'qubo')
+MODES = ('optimization', 'sampling')   # minimize (one result run), or sample solutions (samples = how many)
 DOMAINS = {'ising': (-1, 1), 'qubo': (0, 1)}
 CONTRACT_MIN = (0, 3, 0)          # the platform contract that accepts problems[] in POST /jobs
 CACHE_S = 600.0                   # a platform that supports problems keeps supporting them
@@ -146,6 +155,23 @@ def _type(v):
     return v
 
 
+def _mode(mode, samples):
+    """(mode, samples) checked: mode is one of MODES; samples is an int and only goes with 'sampling'. Its range is
+    the platform's to judge (it is not in the published limits), so it is not checked here."""
+    if mode not in MODES:
+        raise ValueError(t('ising.mode_invalid', ' / '.join(repr(x) for x in MODES), mode))
+    if samples is None:
+        return mode, None
+    if mode != 'sampling':
+        raise ValueError(t('ising.samples_needs_sampling', samples))
+    if isinstance(samples, bool):
+        raise TypeError(t('ising.samples_type', samples))
+    try:
+        return mode, operator.index(samples)
+    except TypeError:
+        raise TypeError(t('ising.samples_type', samples)) from None
+
+
 def _size(num_variables, dense, quad, lin):
     """Number of variables: explicit, else the dense dimension (all dense inputs must agree), else max index + 1."""
     if num_variables is not None:
@@ -179,18 +205,23 @@ class Problem(object):
     linear          [(i, w)], merged, non-zero, sorted
     offset          constant term
     name            optional name of this problem, shown with its task
+    mode            'optimization' (default: the machine searches for the minimum) or 'sampling' (the machine
+                    returns `samples` solutions drawn from low-energy states)
+    samples         how many solutions to sample (mode 'sampling' only; None = the platform's default)
     num_terms       len(quadratic) + len(linear): what the platform's max_terms counts
 
     Build with Problem.from_qubo(Q), Problem.from_ising(J, h) or Problem.from_terms(type, N, quadratic, linear);
     the constructor takes the same arguments as from_terms."""
 
-    def __init__(self, type, num_variables, quadratic=(), linear=None, offset=0, name=None):
+    def __init__(self, type, num_variables, quadratic=(), linear=None, offset=0, name=None, mode='optimization',
+                 samples=None):
         quad = _triples(quadratic, 'quadratic')
         nl, lin = _linear(linear, 'linear')
-        self._build(type, num_variables, quad, [('linear', nl)], lin, offset, name)
+        self._build(type, num_variables, quad, [('linear', nl)], lin, offset, name, mode, samples)
 
-    def _build(self, type_, num_variables, quad, dense, lin, offset, name):
+    def _build(self, type_, num_variables, quad, dense, lin, offset, name, mode='optimization', samples=None):
         self.type = _type(type_)
+        self.mode, self.samples = _mode(mode, samples)
         n = _size(num_variables, dense, quad, lin)
         off = _weight(offset, 'offset')
         q, h = collections.defaultdict(float), collections.defaultdict(float)
@@ -218,52 +249,66 @@ class Problem(object):
         self.name = name or None
 
     @classmethod
-    def _make(cls, type_, num_variables, quad, dense, lin, offset, name):
+    def _make(cls, type_, num_variables, quad, dense, lin, offset, name, mode, samples):
         p = cls.__new__(cls)
-        p._build(type_, num_variables, quad, dense, lin, offset, name)
+        p._build(type_, num_variables, quad, dense, lin, offset, name, mode, samples)
         return p
 
     @classmethod
-    def from_qubo(cls, Q, offset=0, num_variables=None, name=None):
-        """A QUBO problem: minimize offset + x^T Q x over x in {0, 1}^N.
+    def from_qubo(cls, Q, linear=None, offset=0, num_variables=None, name=None, mode='optimization', samples=None):
+        """A QUBO problem: minimize offset + linear.x + x^T Q x over x in {0, 1}^N.
 
         Q is {(i, j): w}, a square nested list, or an array (anything with tolist(), e.g. numpy). Every non-zero
-        entry is a term, so Q need not be symmetric or triangular; the diagonal holds the linear terms.
-        num_variables is needed only when the last variables appear in no term of a dict."""
-        n, quad = _matrix(Q, 'Q')
-        return cls._make('qubo', num_variables, quad, [('Q', n)], [], offset, name)
+        entry is a term, so Q need not be symmetric or triangular; its diagonal holds linear terms (x * x = x), and
+        linear (optional, same shapes as h in from_ising) adds to them. num_variables is needed only when the last
+        variables appear in no term of a dict. mode / samples: see Problem."""
+        n, quad = _matrix(Q, 'quadratic')
+        nl, lin = _linear(linear, 'linear')
+        return cls._make('qubo', num_variables, quad, [('quadratic', n), ('linear', nl)], lin, offset, name, mode,
+                         samples)
 
     @classmethod
-    def from_ising(cls, J, h=None, offset=0, num_variables=None, name=None):
+    def from_ising(cls, J, h=None, offset=0, num_variables=None, name=None, mode='optimization', samples=None):
         """An Ising problem: minimize offset + h.s + s^T J s over s in {-1, +1}^N.
 
         J is {(i, j): w}, a square nested list, or an array; h is a list (or array) of N fields, a list of (i, w)
-        pairs, or {i: w}. Diagonal entries of J are constants (s * s = 1) and fold into the offset."""
-        n, quad = _matrix(J, 'J')
-        nh, lin = _linear(h, 'h')
-        return cls._make('ising', num_variables, quad, [('J', n), ('h', nh)], lin, offset, name)
+        pairs, or {i: w}. Diagonal entries of J are constants (s * s = 1) and fold into the offset.
+        mode / samples: see Problem."""
+        n, quad = _matrix(J, 'quadratic')
+        nh, lin = _linear(h, 'linear')
+        return cls._make('ising', num_variables, quad, [('quadratic', n), ('linear', nh)], lin, offset, name, mode,
+                         samples)
 
     @classmethod
-    def from_terms(cls, type, num_variables, quadratic, linear=None, offset=0, name=None):
+    def from_terms(cls, type, num_variables, quadratic, linear=None, offset=0, name=None, mode='optimization',
+                   samples=None):
         """A problem in the platform's own shape: type 'ising' or 'qubo', N variables, quadratic as (i, j, w)
         triples (or {(i, j): w}), linear as (i, w) pairs, a list of N weights, or {i: w}."""
-        return cls(type, num_variables, quadratic, linear, offset, name)
+        return cls(type, num_variables, quadratic, linear, offset, name, mode, samples)
 
     @property
     def num_terms(self):
         return len(self.quadratic) + len(self.linear)
 
     def __repr__(self):
-        return 'Problem(type=%r, num_variables=%d, num_terms=%d%s)' % (
-            self.type, self.num_variables, self.num_terms, ', name=%r' % self.name if self.name else '')
+        extra = ', name=%r' % self.name if self.name else ''
+        if self.mode != 'optimization':
+            extra += ', mode=%r' % self.mode + (', samples=%r' % self.samples if self.samples is not None else '')
+        return 'Problem(type=%r, num_variables=%d, num_terms=%d%s)' % (self.type, self.num_variables, self.num_terms,
+                                                                       extra)
 
     def to_payload(self):
-        """The problems[] item of POST /jobs: sparse triples and pairs, non-zero terms only."""
+        """The problems[] item of POST /jobs: sparse triples and pairs, non-zero terms only. mode and samples are
+        sent only for sampling (the platform defaults to optimization and refuses samples on it)."""
         d = {'type': self.type, 'num_variables': self.num_variables,
              'quadratic': [[i, j, w] for i, j, w in self.quadratic], 'linear': [[i, w] for i, w in self.linear],
              'offset': self.offset}
         if self.name:
             d['name'] = self.name
+        if self.mode != 'optimization':
+            d['mode'] = self.mode
+            if self.samples is not None:
+                d['samples'] = self.samples
         return d
 
     def energy(self, values):
@@ -315,7 +360,8 @@ class Samples(object):
     device_time_us      compute time reported by the machine, in microseconds
     num_variables       from the task's program section
     error               why it failed {category, stage, retryable, detail, vars}; None on success
-    name / seq / task_id / target / raw   problem name, position in the job, task ID, target, the task detail as is
+    name / seq / task_id / job_id / target / raw   problem name, position in the job, task ID, job ID (quafu.job(id)
+                        reattaches), target, the task detail as is
 
     Energies are recomputed by the platform with its own definition, so Problem.energy(sample.values) agrees."""
 
@@ -325,6 +371,7 @@ class Samples(object):
         program = d.get('program') or {}
         self.raw = d
         self.task_id = d.get('task_id')
+        self.job_id = (d.get('job') or {}).get('job_id')
         self.status = d.get('status')
         self.target = d.get('target')
         self.backend = d.get('chip') or self.target
@@ -454,17 +501,31 @@ def check_limits(client, target, problems):
 class IsingMethods(object):
     """Client methods for Ising problems (mixed into quafu.Client)."""
 
-    def solve_qubo(self, Q, target, *, offset=0, num_variables=None, name=None):
-        """Submit one QUBO problem (see Problem.from_qubo) to an Ising machine; returns a Job without waiting.
-        job.result() returns Samples. name is the job name, shown under "My jobs" on the website."""
-        return self.submit_problems(Problem.from_qubo(Q, offset=offset, num_variables=num_variables), target,
-                                    name=name)
+    def solve_ising(self, quadratic, linear=None, target=None, *, offset=0, num_variables=None, name=None,
+                    mode='optimization', samples=None, timeout=None):
+        """Solve one Ising problem on an Ising machine: submit it, wait for the machine, return its Samples.
 
-    def solve_ising(self, J, h=None, target=None, *, offset=0, num_variables=None, name=None):
-        """Submit one Ising problem (see Problem.from_ising) to an Ising machine; returns a Job without waiting.
-        target is required; job.result() returns Samples."""
-        return self.submit_problems(Problem.from_ising(J, h, offset=offset, num_variables=num_variables), target,
-                                    name=name)
+        quadratic   couplings J: {(i, j): w}, a square nested list, or an array
+        linear      fields h: {i: w}, a list of N weights, or a list of (i, w) pairs; optional
+        target      the Ising machine (a row of quafu.devices() whose paradigm is 'ising'); required
+        mode        'optimization' (default) or 'sampling'; samples = how many solutions to sample
+        timeout     seconds to wait (None = until done); on Timeout the job stays on the platform
+        name        the job name, shown under "My jobs" on the website
+
+        result.samples[0] is the lowest-energy solution (.values, .energy). A failed task raises JobFailed.
+        To submit without waiting, or several problems in one job, use submit_problems()."""
+        p = Problem.from_ising(quadratic, linear, offset=offset, num_variables=num_variables, mode=mode,
+                               samples=samples)
+        return self.submit_problems(p, target, name=name).result(timeout)
+
+    def solve_qubo(self, quadratic, linear=None, target=None, *, offset=0, num_variables=None, name=None,
+                   mode='optimization', samples=None, timeout=None):
+        """Solve one QUBO problem (variables 0 / 1) on an Ising machine: submit, wait, return its Samples.
+        quadratic is Q (its diagonal holds linear terms), linear optional extra linear terms; the rest as
+        solve_ising()."""
+        p = Problem.from_qubo(quadratic, linear, offset=offset, num_variables=num_variables, mode=mode,
+                              samples=samples)
+        return self.submit_problems(p, target, name=name).result(timeout)
 
     def submit_problems(self, problems, target, *, name=None):
         """Submit one Problem, or a list of them as one job (one task per problem, in order); returns a Job.
@@ -498,16 +559,20 @@ class IsingMethods(object):
         return job
 
 
-def solve_qubo(Q, target, *, offset=0, num_variables=None, name=None):
-    """Submit one QUBO problem to an Ising machine; see Client.solve_qubo()."""
+def solve_ising(quadratic, linear=None, target=None, *, offset=0, num_variables=None, name=None,
+                mode='optimization', samples=None, timeout=None):
+    """Solve one Ising problem on an Ising machine and return its Samples; see Client.solve_ising()."""
     from .client import Client
-    return Client().solve_qubo(Q, target, offset=offset, num_variables=num_variables, name=name)
+    return Client().solve_ising(quadratic, linear, target, offset=offset, num_variables=num_variables, name=name,
+                                mode=mode, samples=samples, timeout=timeout)
 
 
-def solve_ising(J, h=None, target=None, *, offset=0, num_variables=None, name=None):
-    """Submit one Ising problem to an Ising machine; see Client.solve_ising()."""
+def solve_qubo(quadratic, linear=None, target=None, *, offset=0, num_variables=None, name=None,
+               mode='optimization', samples=None, timeout=None):
+    """Solve one QUBO problem on an Ising machine and return its Samples; see Client.solve_qubo()."""
     from .client import Client
-    return Client().solve_ising(J, h, target, offset=offset, num_variables=num_variables, name=name)
+    return Client().solve_qubo(quadratic, linear, target, offset=offset, num_variables=num_variables, name=name,
+                               mode=mode, samples=samples, timeout=timeout)
 
 
 def submit_problems(problems, target, *, name=None):

@@ -43,7 +43,7 @@ def test_devices_mark_every_row_and_list_no_ising_machine_without_credentials(cl
 def test_ising_problems_to_a_gate_device_are_refused_with_what_it_takes(client, transport):
     before = jobs_total(client)
     with pytest.raises(PrecheckError) as e:
-        client.solve_ising(TRIANGLE, h=[0.5, 0, 0], target='sim')
+        client.solve_ising(TRIANGLE, linear=[0.5, 0, 0], target='sim')
     assert e.value.status == 422 and e.value.category == 'precheck.paradigmMismatch'
     assert e.value.vars == {'device': 'sim', 'paradigm': 'gate'}
     assert 'circuits only' in str(e.value)
@@ -54,7 +54,7 @@ def test_ising_problems_to_a_gate_device_are_refused_with_what_it_takes(client, 
 
 def test_an_unknown_ising_machine_is_an_unknown_device(client):
     with pytest.raises(PrecheckError) as e:
-        client.solve_qubo([[1, 2], [0, -3]], 'NoSuchIsingMachine')
+        client.solve_qubo([[1, 2], [0, -3]], target='NoSuchIsingMachine')
     assert e.value.status == 422 and e.value.category == 'precheck.unknownDevice'
     assert e.value.vars.get('device') == 'NoSuchIsingMachine'
 

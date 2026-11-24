@@ -316,13 +316,22 @@ Functions of the same names are also available at the top level: `quafu.reorder_
 Ising machines solve QUBO and Ising problems directly; they do not run circuits. Submit a problem, get back solution vectors and their energies:
 
 ```python
-J = {(0, 1): 1.0, (1, 2): 1.0, (0, 2): 1.0}           # couplings; also a square nested list or numpy array
-job = quafu.solve_ising(J, h=[0.5, 0, 0], target="<Ising machine>")
-r = job.result()                                      # Samples
-r.best.values, r.best.energy                          # e.g. [-1, 1, -1], -1.5
+import quafu
+
+result = quafu.solve_ising(
+    quadratic={(0, 1): 1.0, (1, 2): 1.0, (0, 2): 1.0},   # couplings J; also a square nested list or numpy array
+    linear={0: 0.5},                                     # fields h; also a list of N weights
+    target="<Ising machine>",
+)
+best = result.samples[0]                                 # lowest energy first
+print(best.values, best.energy)                          # e.g. [-1, 1, -1] -1.5
 ```
 
-`quafu.solve_qubo(Q, target)` does the same for QUBO. Ising machines are the rows of `quafu.devices()` with `paradigm == "ising"`; their `limits` are `max_variables`, `max_terms` and `max_problems_per_job`.
+`solve_ising` and `solve_qubo` submit one problem, wait until the machine has answered, and return its `Samples`; a failed task raises `JobFailed`, and `timeout=` (seconds) raises `Timeout` while the job stays on the platform (`quafu.job(id)` reattaches it). `quafu.solve_qubo(Q, target=...)` does the same for QUBO (variables 0 / 1; the diagonal of `Q` holds the linear terms, `linear=` adds more). To submit without waiting, or several problems in one job, use `submit_problems` (below). Ising machines are the rows of `quafu.devices()` with `paradigm == "ising"`; their `limits` are `max_variables`, `max_terms` and `max_problems_per_job`.
+
+By default the machine searches for the lowest energy (`mode="optimization"`). With `mode="sampling", samples=N` it returns solutions sampled from low-energy states instead; the platform decides the allowed range of `N` and the default when `samples` is omitted. Machines that do not offer sampling reject it with `BadRequest` (`field_not_applicable`).
+
+Use of an Ising machine may be limited by a per-account quota that is granted rather than reset daily (an optimization problem counts 1, a sampling problem counts its `samples`). When it runs out, submitting raises `QuotaError` with `code == "runtime.deviceQuotaExhausted"` and `vars["available"]`, `vars["requested"]`.
 
 The platform defines the energy for every Ising machine, and the goal is to minimize it:
 
@@ -342,7 +351,7 @@ job = quafu.submit_problems([p, q], target="<Ising machine>")
 rs = job.results()                                    # one Samples per problem, in submission order
 ```
 
-- Inputs: `Q` and `J` are `{(i, j): weight}`, a square nested list, or anything with `tolist()` (numpy arrays; numpy is not required); `h` is a list of weights, `{i: weight}`, or `(i, weight)` pairs. Indices run from 0; weights must be finite real numbers. Invalid input raises `TypeError` or `ValueError` before anything is sent.
+- Inputs: `quadratic` (`Q` or `J`) is `{(i, j): weight}`, a square nested list, or anything with `tolist()` (numpy arrays; numpy is not required); `linear` (`h`) is a list of weights, `{i: weight}`, or `(i, weight)` pairs. Indices run from 0; weights must be finite real numbers. Invalid input raises `TypeError` or `ValueError` before anything is sent.
 - Before sending, the SDK merges `(j, i)` into `(i, j)`, adds up repeated terms and folds the diagonal, so `max_terms` counts the merged non-zero terms. Problems over `max_variables` or `max_terms` raise `PrecheckError` locally, and more than `max_problems_per_job` problems raise `QuotaError` (`job_too_large`), with the same codes the platform uses (`vars["local"]` is `True`).
 - Ising problems take no `shots` and no `compiler`, and cannot be appended to a job later. For several problems, use `results()`; `job.table()` covers circuits only.
 - Rejections by the platform: `PrecheckError` with `category` `precheck.paradigmMismatch` (the target does not take Ising problems), `precheck.unknownDevice`, `precheck.problemInvalid` (`vars["task_index"]` and `vars["field"]` say which problem and field), `precheck.problemTooLarge`; `QuotaError` `job_too_large` for too many problems in one job; `DeviceUnavailable` when the machine is not online.
@@ -360,7 +369,7 @@ rs = job.results()                                    # one Samples per problem,
 | `energy_trace` | The machine's energy during the run, on the platform's energy scale; `None` if not available |
 | `device_time_us` | Compute time reported by the machine, in microseconds; `None` if not reported |
 | `status` / `ok` / `error` | Status of this task; failure reason as for `Result` |
-| `task_id` / `name` / `raw` | Task ID; problem name; full details returned by the platform |
+| `task_id` / `job_id` / `name` / `raw` | Task ID; job ID (`quafu.job(job_id)` reattaches); problem name; full details returned by the platform |
 
 ## Devices and calibration data
 

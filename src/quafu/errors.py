@@ -351,6 +351,9 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
             tail = t('errors.quota.too_many_jobs_tail', vars_.get('used', '?'), vars_.get('limit', '?'))
         elif isinstance(vars_, dict) and 'hard_limit' in vars_:
             text, tail = daily_cap_text(vars_, ra), ''
+        elif code == 'runtime.deviceQuotaExhausted' and isinstance(vars_, dict):
+            # 伊辛机的额度（按账户发放，不按天重置）：平台原文只有中文，按界面语言重写
+            text, tail = t('errors.quota.device_credits', vars_.get('available', '?'), vars_.get('requested', '?')), ''
         elif ra:
             tail = t('errors.quota.retry_tail', ra)
         return QuotaError(t('errors.quota', code, text, tail), retry_after=ra, vars=vars_, **kw)
@@ -398,6 +401,8 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
         return DeviceUnavailable(t('errors.device_unavailable', text), **dict(kw, **cat))
     if code in _PROBLEM_REQUEST_TEXT:
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        if code == 'field_not_applicable' and vars_.get('field') == 'mode':
+            return BadRequest(t('errors.job.sampling_not_supported', code), **kw)
         return BadRequest(t(_PROBLEM_REQUEST_TEXT[code], vars_.get('field') or '?', code), **kw)
     if status in (400, 409, 422):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
