@@ -622,7 +622,7 @@ def test_paradigm_mismatch_in_chinese(platform, c, monkeypatch):
                                                            paradigm='gate')))
     with pytest.raises(PrecheckError) as e:
         c.solve_ising(TRIANGLE_J, target=TARGET)
-    assert '只收量子线路' in str(e.value) and '伊辛机' in str(e.value)
+    assert '只收量子线路' in str(e.value) and '专用量子计算机' in str(e.value)
 
 
 def test_precision_rejection_tells_the_user_what_to_do(platform, c, monkeypatch):

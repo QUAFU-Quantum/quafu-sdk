@@ -219,12 +219,12 @@ MESSAGES = {
     'errors.quota.device_credits': ('Not enough quota on this Ising machine for this problem (available %s, needed %s). '
                                     'This quota is granted per account and does not reset daily; contact the platform '
                                     'to have more added (free of charge).',
-                                    '这台伊辛机的额度不够这一题（可用 %s，需要 %s）。这项额度按账户发放，不按天重置；'
+                                    '这台专用量子计算机的额度不够这一题（可用 %s，需要 %s）。这项额度按账户发放，不按天重置；'
                                     '需要更多请联系平台免费添加'),
     'errors.job.field_not_applicable': ('Ising problems take no %s [%s]', '伊辛问题不收 %s [%s]'),
     'errors.job.sampling_not_supported': ("This Ising machine does not take mode='sampling'; submit the problem "
                                           'with the default mode (optimization) [%s]',
-                                          "这台伊辛机不收 mode='sampling'，请按默认的 optimization 提交 [%s]"),
+                                          "这台专用量子计算机不收 mode='sampling'，请按默认的 optimization 提交 [%s]"),
     'errors.not_cancellable.collecting': ('results are being collected; wait for the result', '正在取回结果，等它出结果即可'),
     'errors.not_cancellable.finished': ('it has already finished', '已经完成'),
     'errors.not_cancellable.failed': ('it has already failed', '已经失败'),
@@ -297,7 +297,7 @@ MESSAGES = {
     'errors.precheck.paradigm_mismatch': ('Target %s takes %s only [%s]. Circuits go to gate-based devices and '
                                           'Ising problems to Ising machines; the paradigm column of quafu.devices() '
                                           'tells them apart.',
-                                          '目标 %s 只收%s [%s]。线路交给门电路设备，伊辛问题交给伊辛机，'
+                                          '目标 %s 只收%s [%s]。线路交给门电路设备，伊辛问题交给专用量子计算机（伊辛机），'
                                           '可在 quafu.devices() 的 paradigm 列区分'),
     'errors.paradigm.gate': ('circuits', '量子线路'),
     'errors.paradigm.ising': ('Ising problems', '伊辛问题'),
@@ -305,7 +305,7 @@ MESSAGES = {
                                   'after conversion to Ising form, all weights must scale by one common factor to '
                                   "integers within the machine's range. Round the weights to small integers, or "
                                   'narrow their range, and submit again.',
-                                  '第 %s 个问题的系数精度超出这台伊辛机的能力 [%s]：换成 Ising 形式后，所有系数要能按同一'
+                                  '第 %s 个问题的系数精度超出这台专用量子计算机的能力 [%s]：换成 Ising 形式后，所有系数要能按同一'
                                   '比例缩放成机器能表示的整数。请把系数取成较小的整数，或缩小它们的动态范围后重新提交'),
     'errors.precheck.undeclared': ('undeclared parameters: %s', '未声明的参数：%s'),
     'errors.forbidden': ('Permission denied [%s]: %s', '没有权限 [%s]：%s'),
@@ -370,7 +370,7 @@ MESSAGES = {
                            '第 %d 项应为 quafu.Problem（用 Problem.from_qubo、from_ising 或 from_terms 构造），当前为 %s'),
     'ising.target_required': ("Specify the Ising machine as target. Ising machines are the rows of quafu.devices() "
                               "whose paradigm is 'ising'.",
-                              "请指定要用的伊辛机作为 target；quafu.devices() 里 paradigm 为 'ising' 的行就是伊辛机"),
+                              "请指定要用的专用量子计算机作为 target；quafu.devices() 里 paradigm 为 'ising' 的行就是这类机器"),
     'ising.version_unknown': ('none reported', '未报告'),
     'ising.platform_too_old': ('The platform at %s does not take Ising problems yet: its contract version is %s, and '
                                'Ising problems need %s or later. Nothing was submitted.',
