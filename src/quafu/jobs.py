@@ -21,6 +21,7 @@ from urllib.parse import quote, urlencode
 from . import bits
 from ._i18n import t
 from .errors import JobCancelled, JobFailed, Timeout, failure_note
+from .ising import Samples, is_samples
 
 log = logging.getLogger('quafu')
 
@@ -163,6 +164,7 @@ class Job(object):
         self.open = open
         self._status = status
         self._done = {}                 # seq → 已到终态的 Result（终态不再变，取过就不再取）
+        self.paradigm = None            # 'ising'：伊辛问题的任务组（详情不带 include，结果是 Samples）；否则为 None
 
     def __repr__(self):
         return 'Job(id=%r, n_tasks=%r, status=%r%s)' % (self.id, self.n_tasks, self._status,
@@ -228,7 +230,7 @@ class Job(object):
 
     def results(self, timeout=None):
         """等到任务组结束，返回 Result 列表，顺序就是交线路的顺序。没成功的那几条 counts 为 None、
-        status 与 error 说明原因，不抛异常。"""
+        status 与 error 说明原因，不抛异常。伊辛问题的任务组每条是 Samples（见 quafu.ising）。"""
         settled = self._status in JOB_TERMINAL and not self.open and self.n_tasks is not None
         if not (settled and len(self._done) == self.n_tasks):        # 全部取过且任务组已结束：不再问平台
             self.wait(timeout)
@@ -238,20 +240,27 @@ class Job(object):
         for seq in range(self.n_tasks or 0):
             r = self._done.get(seq)
             if r is None:
-                d = self.client._request('GET', self._path('/tasks/%d?include=%s' % (seq, DETAIL_INCLUDE)),
+                include = '' if self.paradigm == 'ising' else '?include=' + DETAIL_INCLUDE
+                d = self.client._request('GET', self._path('/tasks/%d%s' % (seq, include)),
                                          endpoint='task', task_id='%s-%d' % (self.id, seq), job_id=self.id)
-                r = Result(d)
+                if is_samples(d):
+                    self.paradigm = 'ising'
+                    r = Samples(d)
+                else:
+                    r = Result(d)
                 if r.status in TASK_TERMINAL:
                     self._done[seq] = r
             out.append(r)
         return out
 
     def result(self, timeout=None):
-        """只交了一条线路时用：等到结束，返回它的 Result。失败抛 JobFailed，被取消抛 JobCancelled，
-        timeout 秒内没结束抛 Timeout。交了多条线路时请用 results()。"""
+        """只交了一条线路时用：等到结束，返回它的 Result（伊辛问题返回 Samples）。失败抛 JobFailed，被取消抛
+        JobCancelled，timeout 秒内没结束抛 Timeout。交了多条线路时请用 results()。"""
         if self.n_tasks is None:
             self._refresh()
         if self.n_tasks != 1:
+            if self.paradigm == 'ising':
+                raise ValueError(t('ising.result_single', self.id, self.n_tasks))
             raise ValueError(t('jobs.result_single', self.id, self.n_tasks))
         r = self.results(timeout)[0]
         if not r.ok:

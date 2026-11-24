@@ -232,6 +232,14 @@ _JOB_CONFLICT_TEXT = {
     'job_has_no_template': 'errors.job.no_template',
 }
 
+# 伊辛问题（契约 0.3.0，06 §3.18）的提交拒绝：请求体的形状不对，归 BadRequest，vars.field 指明是哪个字段；
+# 平台原文只有中文，按界面语言重写
+_PROBLEM_REQUEST_TEXT = {
+    'problems_conflict': 'errors.job.problems_conflict',
+    'field_not_applicable': 'errors.job.field_not_applicable',
+}
+_PARADIGM_TEXT = {'gate': 'errors.paradigm.gate', 'ising': 'errors.paradigm.ising'}
+
 _NOT_CANCELLABLE_TEXT = {
     'collecting': 'errors.not_cancellable.collecting',
     'finished': 'errors.not_cancellable.finished',
@@ -343,11 +351,20 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
             tail = t('errors.quota.too_many_jobs_tail', vars_.get('used', '?'), vars_.get('limit', '?'))
         elif isinstance(vars_, dict) and 'hard_limit' in vars_:
             text, tail = daily_cap_text(vars_, ra), ''
+        elif code == 'runtime.deviceQuotaExhausted' and isinstance(vars_, dict):
+            # 伊辛机的额度（按账户发放，不按天重置）：平台原文只有中文，按界面语言重写
+            text, tail = t('errors.quota.device_credits', vars_.get('available', '?'), vars_.get('requested', '?')), ''
         elif ra:
             tail = t('errors.quota.retry_tail', ra)
         return QuotaError(t('errors.quota', code, text, tail), retry_after=ra, vars=vars_, **kw)
     if code.startswith('precheck.'):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        if code == 'precheck.paradigmMismatch':
+            takes = t(_PARADIGM_TEXT[vars_['paradigm']]) if vars_.get('paradigm') in _PARADIGM_TEXT else '?'
+            return PrecheckError(t('errors.precheck.paradigm_mismatch', vars_.get('device') or '?', takes, code),
+                                 **dict(kw, **cat))
+        if code == 'precheck.problemInvalid' and vars_.get('field') == 'precision':
+            return PrecheckError(t('errors.precheck.precision', vars_.get('task_index', '?'), code), **dict(kw, **cat))
         reason = vars_.get('reason')
         notes = [t('errors.precheck.reason', reason)] if reason else []
         if reason == 'unmeasured_clbit':
@@ -382,6 +399,11 @@ def from_response(endpoint, status, body, headers=None, raw=b'', task_id=None, w
             # 九鼎模拟此刻没有可用的模拟器：平台原文只有中文，按界面语言重写
             text = t('errors.device_unavailable.jiuding_sim', device)
         return DeviceUnavailable(t('errors.device_unavailable', text), **dict(kw, **cat))
+    if code in _PROBLEM_REQUEST_TEXT:
+        vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
+        if code == 'field_not_applicable' and vars_.get('field') == 'mode':
+            return BadRequest(t('errors.job.sampling_not_supported', code), **kw)
+        return BadRequest(t(_PROBLEM_REQUEST_TEXT[code], vars_.get('field') or '?', code), **kw)
     if status in (400, 409, 422):
         vars_ = body.get('vars') if isinstance(body.get('vars'), dict) else {}
         field = t('errors.field', vars_['field']) if vars_.get('field') else ''

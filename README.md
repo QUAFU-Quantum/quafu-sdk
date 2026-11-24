@@ -2,7 +2,7 @@
 
 Full guide: [English](https://quafu.com.cn/en/docs/sdk) · [中文](https://quafu.com.cn/docs/sdk)
 
-Run quantum circuits on the real devices and simulators of the QUAFU quantum computing platform from Python, and fetch the results.
+Run quantum circuits on the real devices and simulators of the QUAFU quantum computing platform from Python, solve QUBO and Ising problems on its Ising machines, and fetch the results.
 
 - Install: `uv pip install quafu-sdk` (or `pip install quafu-sdk`; in a Jupyter notebook: `%pip install quafu-sdk`)
 - Import: `import quafu` (Qiskit backend adapter: `from quafu.qiskit import QuafuProvider`)
@@ -163,7 +163,7 @@ for d in quafu.devices():
     print(d["name"], d["kind"], d["status"], d["n_qubits"], d["queue"], d["limits"])
 ```
 
-`kind` is `real` (real device) or `sim` (simulator); `queue` is the number of tasks queued ahead, or `None` if unknown. Querying devices does not require login.
+`kind` is `real` (real device), `sim` (simulator) or `ising` (Ising machine); `queue` is the number of tasks queued ahead, or `None` if unknown. `paradigm` says what a target accepts: `gate` (circuits) or `ising` (QUBO and Ising problems; see "Ising problems"). Querying devices does not require login.
 
 `limits` is the target's resource limits as published by the platform — the single source for every limit; this README does not repeat the numbers. It is the same object as `limits` in `GET {BASE_URL}/api/v1/backends/<target>/metadata` (also `quafu.Client().metadata(target)["limits"]`):
 
@@ -311,6 +311,66 @@ r.expectation_z([0, 1])      # Z⊗Z expectation value (computed from raw counts
 
 Functions of the same names are also available at the top level: `quafu.reorder_counts`, `quafu.counts_by_qubit`, `quafu.probabilities`, `quafu.expectation_z`.
 
+## Ising problems
+
+Ising machines solve QUBO and Ising problems directly; they do not run circuits. Submit a problem, get back solution vectors and their energies:
+
+```python
+import quafu
+
+result = quafu.solve_ising(
+    quadratic={(0, 1): 1.0, (1, 2): 1.0, (0, 2): 1.0},   # couplings J; also a square nested list or numpy array
+    linear={0: 0.5},                                     # fields h; also a list of N weights
+    target="<Ising machine>",
+)
+best = result.samples[0]                                 # lowest energy first
+print(best.values, best.energy)                          # e.g. [-1, 1, -1] -1.5
+```
+
+`solve_ising` and `solve_qubo` submit one problem, wait until the machine has answered, and return its `Samples`; a failed task raises `JobFailed`, and `timeout=` (seconds) raises `Timeout` while the job stays on the platform (`quafu.job(id)` reattaches it). `quafu.solve_qubo(Q, target=...)` does the same for QUBO (variables 0 / 1; the diagonal of `Q` holds the linear terms, `linear=` adds more). To submit without waiting, or several problems in one job, use `submit_problems` (below). Ising machines are the rows of `quafu.devices()` with `paradigm == "ising"`; their `limits` are `max_variables`, `max_terms` and `max_problems_per_job`.
+
+By default the machine searches for the lowest energy (`mode="optimization"`). With `mode="sampling", samples=N` it returns solutions sampled from low-energy states instead; the platform decides the allowed range of `N` and the default when `samples` is omitted. Machines that do not offer sampling reject it with `BadRequest` (`field_not_applicable`).
+
+Use of an Ising machine may be limited by a per-account quota that is granted rather than reset daily (an optimization problem counts 1, a sampling problem counts its `samples`). When it runs out, submitting raises `QuotaError` with `code == "runtime.deviceQuotaExhausted"` and `vars["available"]`, `vars["requested"]`.
+
+The platform defines the energy for every Ising machine, and the goal is to minimize it:
+
+```text
+E(v) = offset + sum of w * v[i] over linear terms (i, w) + sum of w * v[i] * v[j] over quadratic terms (i, j, w)
+```
+
+with `v[i]` in {-1, +1} for Ising problems and {0, 1} for QUBO. Every matrix entry is a term, so a dense matrix `M` means `E = vᵀ M v` (it need not be symmetric or triangular). Diagonal entries are linear terms in QUBO (`x·x = x`) and constants in Ising problems (`s·s = 1`). Energies in the results are recomputed by the platform with this definition, whichever machine ran the problem.
+
+Build problems locally to check them, compute energies, or submit several in one job:
+
+```python
+p = quafu.Problem.from_ising(J, h=[0.5, 0, 0])        # also from_qubo(Q), from_terms(type, n, quadratic, linear)
+p.energy([-1, 1, -1])                                 # -1.5
+p.to_payload()                                        # the sparse form that is sent: non-zero terms only
+job = quafu.submit_problems([p, q], target="<Ising machine>")
+rs = job.results()                                    # one Samples per problem, in submission order
+```
+
+- Inputs: `quadratic` (`Q` or `J`) is `{(i, j): weight}`, a square nested list, or anything with `tolist()` (numpy arrays; numpy is not required); `linear` (`h`) is a list of weights, `{i: weight}`, or `(i, weight)` pairs. Indices run from 0; weights must be finite real numbers. Invalid input raises `TypeError` or `ValueError` before anything is sent.
+- Before sending, the SDK merges `(j, i)` into `(i, j)`, adds up repeated terms and folds the diagonal, so `max_terms` counts the merged non-zero terms. Problems over `max_variables` or `max_terms` raise `PrecheckError` locally, and more than `max_problems_per_job` problems raise `QuotaError` (`job_too_large`), with the same codes the platform uses (`vars["local"]` is `True`).
+- Ising problems take no `shots` and no `compiler`, and cannot be appended to a job later. For several problems, use `results()`; `job.table()` covers circuits only.
+- Rejections by the platform: `PrecheckError` with `category` `precheck.paradigmMismatch` (the target does not take Ising problems), `precheck.unknownDevice`, `precheck.problemInvalid` (`vars["task_index"]` and `vars["field"]` say which problem and field), `precheck.problemTooLarge`; `QuotaError` `job_too_large` for too many problems in one job; `DeviceUnavailable` when the machine is not online.
+- An Ising machine may have limited coefficient precision. If it cannot represent the weights, the platform rejects the problem with `precheck.problemInvalid` and `vars["field"] == "precision"`: round the weights to small integers, or narrow their range, and submit again.
+- Ising problems need a platform with contract version 0.3.0 or later (reported by `GET {BASE_URL}/api/v1/healthz`); on an older platform `solve_*` raises `ServerUnavailable` without submitting.
+
+**Samples**
+
+| Field | Meaning |
+|---|---|
+| `best` | Lowest-energy solution: `best.values`, `best.energy` |
+| `samples` | Distinct solutions, lowest energy first (the first is the best): `[Sample(values, energy, occurrences)]`; `None` if unsuccessful |
+| `energies` | Energy of each sample, in the same order |
+| `problem_type` | `"ising"` (values are -1 / +1) or `"qubo"` (values are 0 / 1) |
+| `energy_trace` | The machine's energy during the run, on the platform's energy scale; `None` if not available |
+| `device_time_us` | Compute time reported by the machine, in microseconds; `None` if not reported |
+| `status` / `ok` / `error` | Status of this task; failure reason as for `Result` |
+| `task_id` / `job_id` / `name` / `raw` | Task ID; job ID (`quafu.job(job_id)` reattaches); problem name; full details returned by the platform |
+
 ## Devices and calibration data
 
 ```python
@@ -398,7 +458,7 @@ All exceptions inherit from `quafu.QuafuError`; error messages explain the cause
 | `JobNotFound` | The job does not exist or does not belong to the current account |
 | `JobClosed` | Appending tasks to a closed or non-iterative job |
 | `Timeout` | Waiting exceeded `timeout` |
-| `ServerUnavailable` | Cannot connect to the platform, or the platform is temporarily unavailable |
+| `ServerUnavailable` | Cannot connect to the platform, the platform is temporarily unavailable, or its contract version does not support the feature yet (Ising problems) |
 
 ## FAQ
 

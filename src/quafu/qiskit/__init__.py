@@ -113,7 +113,7 @@ class QuafuProvider(object):
         self.client = client if client is not None else Client(**client_kwargs)
 
     def backends(self, name=None):
-        names = [d['name'] for d in self.client.devices()]
+        names = [d['name'] for d in self.client.devices() if d.get('paradigm', 'gate') == 'gate']   # 伊辛机不收线路
         return [QuafuBackend(self, x) for x in names if name is None or x == name]
 
     def get_backend(self, name):

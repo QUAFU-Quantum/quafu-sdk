@@ -30,6 +30,7 @@ from ._qasm import to_qasm
 from .devices import Calibration, Device
 from .errors import (QuafuError, BadRequest, CredentialsError, LoginExpired, LoginFailed, LoginRevoked, NotLoggedIn,
                      ProtocolError, QuotaError, ServerUnavailable, SubmitUncertain, Timeout, from_response, snippet)
+from .ising import IsingMethods, device_rows as ising_device_rows
 from .jobs import Job
 from .transport import HTTPTransport
 
@@ -231,7 +232,7 @@ class BaseClient(object):
                 'credential': c.mask}
 
 
-class Client(BaseClient):
+class Client(BaseClient, IsingMethods):
     __doc__ = BaseClient.__doc__
 
     def devices(self):
@@ -246,7 +247,10 @@ class Client(BaseClient):
         limits 是这个目标的资源上限（比特数、shots 取值、深度、墙钟等），平台原样给出，与
         GET {BASE_URL}/api/v1/backends/<name>/metadata 的 limits 同源；平台没给时为 None。
         另有两种不指定某一台的目标：'all-race'（同时发给所有在线真机、取最先完成的）与 'all-redispatch'
-        （先发一台，不可用自动换下一台）。公开数据，不需要登录。"""
+        （先发一台，不可用自动换下一台）。公开数据，不需要登录。
+        paradigm 是计算范式：'gate'（收线路）或 'ising'（收伊辛问题，见 solve_qubo）。伊辛机排在最后，kind 为 'ising'、
+        n_qubits 为 None，另带 technology、max_variables、problem_types；它们的 limits 是 max_variables、max_terms、
+        max_problems_per_job。"""
         d = self._request('GET', '/devices', auth=False)
         out = []
         sim = d.get('simulator') or {}
@@ -269,7 +273,9 @@ class Client(BaseClient):
                 out.append({'name': row['name'], 'kind': 'sim', 'status': row.get('status'),
                             'n_qubits': row.get('n_qubits'), 'queue': row.get('queue'),
                             'max_qubits': row.get('max_qubits'), 'limits': row.get('limits')})
-        return out
+        for row in out:
+            row['paradigm'] = 'gate'
+        return out + ising_device_rows(d)
 
     def submit(self, circuits, target, shots=1024, compiler='qiskit', name=None, parameters=None):
         """交一条或一组线路，立刻返回任务组句柄（Job），不等结果。

@@ -13,6 +13,8 @@
     quafu.device('Dongling').calibration()     # 设备详情与校准数据；quafu.calibration(id)
     quafu.stats()                              # 本人用量与额度（北京时间 23:00 重置）
     quafu.Client(api_key='qf_…')               # 显式身份
+    quafu.solve_ising(quadratic, linear, target=…)   # 伊辛机：交一道 Ising（或 solve_qubo 交 QUBO）问题，等结果，返回 Samples
+    quafu.Problem.from_ising(J, h); quafu.submit_problems([…], target)   # 本地构造、算能量；一次交多个问题，不等结果
     from quafu.qiskit import QuafuProvider, sweep   # Qiskit 后端适配与参数化线路扫参（需要 qiskit）
 
 运行时只用标准库；Qiskit 线路作为输入时需要 pip install "quafu-sdk[qiskit]"。"""
@@ -32,7 +34,7 @@ except ConflictError as _e:
         raise SystemExit(1)
     raise
 
-__version__ = '0.2.7'
+__version__ = '0.3.0'
 
 from ._i18n import get_language, set_language  # noqa: E402
 
@@ -47,12 +49,14 @@ from .devices import Device, Calibration  # noqa: E402
 from .bits import reorder_counts, counts_by_qubit, probabilities, expectation_z  # noqa: E402
 from .client import (Client, login, logout, whoami, submit, sweep, open_job, job, devices, device,  # noqa: E402
                      calibration, stats)
+from .ising import Problem, Sample, Samples, solve_qubo, solve_ising, submit_problems  # noqa: E402
 
 __all__ = [
     '__version__', 'DEFAULT_BASE_URL', 'set_language', 'get_language',
     'login', 'logout', 'whoami', 'submit', 'sweep', 'open_job', 'job', 'devices', 'device', 'calibration', 'stats',
     'Client', 'Job', 'Result', 'ResultTable', 'Device', 'Calibration',
     'reorder_counts', 'counts_by_qubit', 'probabilities', 'expectation_z',
+    'solve_qubo', 'solve_ising', 'submit_problems', 'Problem', 'Sample', 'Samples',
     'QuafuError', 'AuthError', 'NotLoggedIn', 'LoginFailed', 'LoginExpired', 'LoginRevoked', 'CredentialsError',
     'BadRequest', 'PrecheckError', 'QuotaError', 'DeviceUnavailable', 'JobFailed', 'JobCancelled', 'JobNotFound', 'JobClosed',
     'TaskNotFound', 'ServerUnavailable', 'SubmitUncertain', 'ProtocolError', 'ClientOutdated', 'Timeout',

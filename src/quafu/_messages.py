@@ -213,6 +213,18 @@ MESSAGES = {
                           '任务组 %s 已关闭，不能再追加；新建一个任务组'),
     'errors.job.not_iterative': ('Job %s is not iterative and cannot accept more tasks', '任务组 %s 不是迭代式，不能追加'),
     'errors.job.no_template': ('Job %s has no template; append circuits instead', '任务组 %s 没有模板，只能按 circuits 追加'),
+    'errors.job.problems_conflict': ('Ising problems go alone in a single or collection job; remove or change field '
+                                     '%s [%s]',
+                                     '伊辛问题只能单独组成 single 或 collection 任务组，请去掉或改掉字段 %s [%s]'),
+    'errors.quota.device_credits': ('Not enough quota on this Ising machine for this problem (available %s, needed %s). '
+                                    'This quota is granted per account and does not reset daily; contact the platform '
+                                    'to have more added (free of charge).',
+                                    '这台专用量子计算机的额度不够这一题（可用 %s，需要 %s）。这项额度按账户发放，不按天重置；'
+                                    '需要更多请联系平台免费添加'),
+    'errors.job.field_not_applicable': ('Ising problems take no %s [%s]', '伊辛问题不收 %s [%s]'),
+    'errors.job.sampling_not_supported': ("This Ising machine does not take mode='sampling'; submit the problem "
+                                          'with the default mode (optimization) [%s]',
+                                          "这台专用量子计算机不收 mode='sampling'，请按默认的 optimization 提交 [%s]"),
     'errors.not_cancellable.collecting': ('results are being collected; wait for the result', '正在取回结果，等它出结果即可'),
     'errors.not_cancellable.finished': ('it has already finished', '已经完成'),
     'errors.not_cancellable.failed': ('it has already failed', '已经失败'),
@@ -282,6 +294,19 @@ MESSAGES = {
     'errors.precheck.missing_params': ('the job declares no parameters; declare parameter names and units before '
                                        'submitting circuits with parameter values',
                                        '任务组没有声明 parameters，带参数值的线路要先声明参数与单位'),
+    'errors.precheck.paradigm_mismatch': ('Target %s takes %s only [%s]. Circuits go to gate-based devices and '
+                                          'Ising problems to Ising machines; the paradigm column of quafu.devices() '
+                                          'tells them apart.',
+                                          '目标 %s 只收%s [%s]。线路交给门电路设备，伊辛问题交给专用量子计算机（伊辛机），'
+                                          '可在 quafu.devices() 的 paradigm 列区分'),
+    'errors.paradigm.gate': ('circuits', '量子线路'),
+    'errors.paradigm.ising': ('Ising problems', '伊辛问题'),
+    'errors.precheck.precision': ('Problem #%s needs more coefficient precision than this Ising machine has [%s]: '
+                                  'after conversion to Ising form, all weights must scale by one common factor to '
+                                  "integers within the machine's range. Round the weights to small integers, or "
+                                  'narrow their range, and submit again.',
+                                  '第 %s 个问题的系数精度超出这台专用量子计算机的能力 [%s]：换成 Ising 形式后，所有系数要能按同一'
+                                  '比例缩放成机器能表示的整数。请把系数取成较小的整数，或缩小它们的动态范围后重新提交'),
     'errors.precheck.undeclared': ('undeclared parameters: %s', '未声明的参数：%s'),
     'errors.forbidden': ('Permission denied [%s]: %s', '没有权限 [%s]：%s'),
     'errors.device_unavailable': ('Device unavailable: %s', '设备暂不可用：%s'),
@@ -305,6 +330,64 @@ MESSAGES = {
     'limits.shots_step': ('%sshots for target %s must be a multiple of %s; got %s. Not submitted. '
                           'Limits: GET %s (limits)',
                           '%s目标 %s 的 shots 须是 %s 的整数倍，收到 %s，未提交。各项上限以 GET %s 的 limits 为准'),
+
+    # ── Ising problems (ising.py) ────────────────────────────────────
+    'ising.type_invalid': ('type must be %s; got %r', 'type 只能是 %s，当前为 %r'),
+    'ising.mode_invalid': ('mode must be %s; got %r', 'mode 只能是 %s，当前为 %r'),
+    'ising.samples_needs_sampling': ("samples=%r only applies to mode='sampling'; an optimization problem takes no "
+                                     'samples',
+                                     "samples=%r 只对 mode='sampling' 有意义；求最优解（optimization）的问题不收 samples"),
+    'ising.samples_type': ('samples must be an integer; got %r', 'samples 应为整数，当前为 %r'),
+    'ising.num_variables': ('num_variables must be an integer of at least 1; got %r',
+                            'num_variables 应为不小于 1 的整数，当前为 %r'),
+    'ising.size_mismatch': ('The inputs disagree on the number of variables (%s); pass num_variables or fix the '
+                            'sizes',
+                            '各输入的变量数不一致（%s）；请给出 num_variables 或改正尺寸'),
+    'ising.matrix_type': ('%s must be a dict {(i, j): weight}, a square nested list, or an array with tolist(); '
+                          'got %s',
+                          '%s 应为字典 {(i, j): 权重}、方阵形状的嵌套列表，或带 tolist() 的数组，当前为 %s'),
+    'ising.row_type': ('%s must be a square matrix: row %d is a %s, not a list of weights',
+                       '%s 应为方阵：第 %d 行是 %s，不是权重列表'),
+    'ising.not_square': ('%s must be a square matrix: it has %d rows, but row %d has %d entries',
+                         '%s 应为方阵：共 %d 行，但第 %d 行有 %d 个元素'),
+    'ising.key_shape': ('Each key of %s must be a pair (i, j) of variable indices; got %r',
+                        '%s 的每个键应为变量下标对 (i, j)，当前为 %r'),
+    'ising.linear_type': ('%s must be a list of weights, a list of (i, weight) pairs, or a dict {i: weight}; got %s',
+                          '%s 应为权重列表、(i, 权重) 对的列表，或字典 {i: 权重}，当前为 %s'),
+    'ising.terms_type': ('%s must be a list of (i, j, weight) triples or a dict {(i, j): weight}; got %s',
+                         '%s 应为 (i, j, 权重) 三元组的列表，或字典 {(i, j): 权重}，当前为 %s'),
+    'ising.term_shape': ('%s[%d] must be a triple (i, j, weight); got %r', '%s[%d] 应为三元组 (i, j, 权重)，当前为 %r'),
+    'ising.index_type': ('%s: a variable index must be an integer; got %r', '%s：变量下标应为整数，当前为 %r'),
+    'ising.index_range': ('%s: variable index %d is out of range 0..%d', '%s：变量下标 %d 超出范围 0..%d'),
+    'ising.name_type': ('A problem name must be a string; got %r', '问题名应为字符串，当前为 %r'),
+    'ising.values_length': ('values has %d entries, but the problem has %d variables',
+                            'values 有 %d 个值，而这个问题有 %d 个变量'),
+    'ising.values_domain': ('values[%d] is %r; variables of a %s problem take %s',
+                            'values[%d] 为 %r；%s 问题的变量只取 %s'),
+    'ising.empty_problems': ('The problem list is empty', '问题列表为空'),
+    'ising.problem_type': ('Item %d must be a quafu.Problem (build one with Problem.from_qubo, from_ising or '
+                           'from_terms); got %s',
+                           '第 %d 项应为 quafu.Problem（用 Problem.from_qubo、from_ising 或 from_terms 构造），当前为 %s'),
+    'ising.target_required': ("Specify the Ising machine as target. Ising machines are the rows of quafu.devices() "
+                              "whose paradigm is 'ising'.",
+                              "请指定要用的专用量子计算机作为 target；quafu.devices() 里 paradigm 为 'ising' 的行就是这类机器"),
+    'ising.version_unknown': ('none reported', '未报告'),
+    'ising.platform_too_old': ('The platform at %s does not take Ising problems yet: its contract version is %s, and '
+                               'Ising problems need %s or later. Nothing was submitted.',
+                               '平台 %s 还不收伊辛问题：它的接口契约版本为 %s，伊辛问题需要 %s 或更高。未提交'),
+    'ising.where_n': ('problem #%d: ', '第 %d 个问题：'),
+    'ising.too_many_problems': ('Target %s takes at most %s problems per job; got %s. Not submitted. '
+                                'Limits: GET %s (limits)',
+                                '目标 %s 每个任务组最多 %s 个问题，收到 %s 个，未提交。各项上限以 GET %s 的 limits 为准'),
+    'ising.too_many_variables': ('%starget %s takes at most %s variables; this problem has %s. Not submitted. '
+                                 'Limits: GET %s (limits)',
+                                 '%s目标 %s 最多 %s 个变量，这个问题有 %s 个，未提交。各项上限以 GET %s 的 limits 为准'),
+    'ising.too_many_terms': ('%starget %s takes at most %s non-zero terms (quadratic plus linear, after merging '
+                             'repeats); this problem has %s. Not submitted. Limits: GET %s (limits)',
+                             '%s目标 %s 最多 %s 个非零项（二次项加一次项，重复项合并之后），这个问题有 %s 个，未提交。'
+                             '各项上限以 GET %s 的 limits 为准'),
+    'ising.result_single': ('Job %s has %s problems; result() only works for single-problem jobs. Use results().',
+                            '任务组 %s 包含 %s 个问题，result() 仅适用于只有一个问题的任务组，请使用 results()'),
 
     # ── credentials.py ───────────────────────────────────────────────
     'cred.what.api_key': ('API key', 'API Key'),
