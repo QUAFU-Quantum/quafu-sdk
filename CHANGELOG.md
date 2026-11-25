@@ -4,7 +4,7 @@ All notable changes to `quafu-sdk` are documented here. The format follows [Keep
 
 Versioning: patch = bug fixes, following platform-side changes, and wording; minor = new features; major = may break the API (breaking changes are deprecated for one release first).
 
-## [0.3.0]
+## [0.3.0] - 2026-11-25
 
 Why: the platform is adding Ising machines, which do not run quantum circuits. They take a QUBO or Ising problem and return solution vectors with their energies. Until now the SDK could only submit circuits, so users of these machines had no way in from Python. Needs a platform with contract version 0.3.0; checked against the platform's implementation with the contract tests in `tests/contract/test_v03_contract.py`.
 
